@@ -11,6 +11,7 @@ import sys
 from typing import Optional
 
 # 配置日志
+from mcp.server import McpServer # Added import
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,14 +38,12 @@ def init_mcp_server(transport_type: str, port: Optional[int] = None) -> None:
     """
     logger.info(f"初始化MCP服务器 (传输类型: {transport_type})")
     
+    server = McpServer(name="Academic RAG Server", version="0.1.0") # Instantiated McpServer
+    
     if transport_type == 'stdio':
-        logger.info("使用STDIO传输 - 功能尚未实现")
-        # TODO: 集成MCP STDIO传输
-        print("MCP服务器功能尚未实现，计划开发中...", file=sys.stderr)
+        server.start(transport_type=transport_type) # Called server.start()
     elif transport_type == 'sse':
-        logger.info(f"使用SSE传输 (端口: {port}) - 功能尚未实现")
-        # TODO: 集成MCP SSE传输
-        print("MCP服务器功能尚未实现，计划开发中...", file=sys.stderr)
+        server.start(transport_type=transport_type, port=port) # Called server.start() with port
     else:
         logger.error(f"不支持的传输类型: {transport_type}")
         sys.exit(1)

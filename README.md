@@ -47,7 +47,7 @@
 - [x] 基础文档处理流水线实现
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
-- [ ] **MCP服务器接口实现**
+- [x] **MCP服务器接口实现** (STDIO transport, basic tool execution)
 - [ ] MCP工具 (Tools) 功能开发
 - [ ] MCP资源 (Resources) 功能开发
 - [ ] MCP提示 (Prompts) 功能开发
@@ -55,3 +55,41 @@
 - [ ] 高级RAG功能增强
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
+
+## Basic Usage (STDIO)
+
+The server can be run using `app.py` and defaults to STDIO transport.
+
+1.  **Start the server:**
+    ```bash
+    python3 app.py
+    ```
+
+2.  **Interact with the server via STDIN/STDOUT:**
+    Once the server is running, you can send commands to its standard input and receive JSON responses on its standard output.
+
+    *   **Discover capabilities:**
+        Send the plain text command:
+        ```
+        discover
+        ```
+        The server will respond with a JSON object detailing its capabilities, including available tools. Example (structure may vary):
+        ```json
+        {"mcp_protocol_version": "1.0", "server_name": "Academic RAG Server", "server_version": "0.1.0", "tools": [...], "resources": [], "prompts": []}
+        ```
+
+    *   **Execute the echo tool:**
+        Send the following JSON command:
+        ```json
+        {"command": "execute_tool", "tool_name": "echo", "tool_params": {"message": "Hello MCP"}}
+        ```
+        Receive (example):
+        ```json
+        {"mcp_protocol_version": "1.0", "status": "success", "tool_name": "echo", "result": {"echo_response": "Hello MCP"}}
+        ```
+
+    *   **Stop the server:**
+        Send the plain text command:
+        ```
+        quit
+        ```
