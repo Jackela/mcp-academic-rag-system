@@ -48,20 +48,11 @@
     },
     {
         "id": "doc200",
-        "title": "My Valid Document Title",
-        "abstract": "My Valid Document Title\nThis is the content of the valid document.\n",
+        "title": "My New STDIO Document. Content on one line.",
+        "abstract": "My New STDIO Document. Content on one line.",
         "keywords": [
-            "valid",
-            "test_ui"
-        ]
-    },
-    {
-        "id": "doc201",
-        "title": "empty_doc",
-        "abstract": "",
-        "keywords": [
-            "empty",
-            "ui_test"
+            "stdio_test",
+            "dynamic_resource"
         ]
     }
 ]

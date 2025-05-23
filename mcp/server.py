@@ -244,6 +244,7 @@ class McpServer:
         self.next_doc_id_counter = 200
         logger.info(f"创建MCP服务器: {name} v{version}")
 
+        # Load document store first
         self.document_store_file = "documents.json"
         default_documents = [
             {
@@ -285,6 +286,14 @@ class McpServer:
             except IOError as ioe:
                 logger.error(f"Could not write initial document store to {self.document_store_file}: {ioe}")
 
+        # Register existing documents from the store as resources
+        if self.document_store: # Ensure document_store is not None or empty
+            logger.info(f"Registering {len(self.document_store)} documents from store as MCP resources...")
+            for doc_idx, doc in enumerate(self.document_store):
+                logger.debug(f"Registering document at index {doc_idx}: {doc.get('id')}")
+                self._register_document_as_resource(doc)
+        else:
+            logger.info("Document store is empty. No documents to register as resources initially.")
 
         self.register_tool(
             name="echo",
@@ -412,6 +421,36 @@ class McpServer:
         self.next_doc_id_counter += 1
         return doc_id
 
+    def _register_document_as_resource(self, document: dict) -> None:
+        """Helper method to register a single document as an MCP resource."""
+        if not document or 'id' not in document:
+            logger.warning("Attempted to register a document resource without an ID or empty document. Skipping.")
+            return
+
+        doc_id = document['id']
+        # Use a sensible default if title is missing or empty after stripping
+        doc_title_str = str(document.get('title', '')).strip()
+        if not doc_title_str:
+            doc_title = f"Document {doc_id}" # Fallback title using ID
+        else:
+            doc_title = doc_title_str
+
+        uri = f"mcp://resources/documents/{doc_id}"
+
+        # Ensure content is a dictionary (it should be if document is from document_store)
+        content_data = document if isinstance(document, dict) else {}
+        
+        resource_definition = {
+            'uri': uri,
+            'name': f"Document: {doc_title}", # Use the processed doc_title
+            'description': f"Access to document {doc_id} - '{doc_title}'", # Use processed doc_title
+            'mime_type': 'application/json', 
+            'content': content_data 
+        }
+        self.resources[uri] = resource_definition
+        logger.info(f"Registered document {doc_id} as MCP resource: {uri}")
+
+
     def _save_document_store_to_file(self) -> None:
         """Saves the current document store to the JSON file."""
         try:
@@ -456,6 +495,7 @@ class McpServer:
         self.document_store.append(new_document)
         logger.info(f"Added new document from text: {new_doc_id} - {new_document['title']}")
         self._save_document_store_to_file() # Persist changes
+        self._register_document_as_resource(new_document) # Register new doc as resource
         
         return {
             "message": "Document added successfully from text.",
@@ -535,6 +575,7 @@ class McpServer:
         self.document_store.append(new_document)
         logger.info(f"Added new document from file {filename}: {new_doc_id} - {derived_title_sanitized}")
         self._save_document_store_to_file()
+        self._register_document_as_resource(new_document) # Register new doc as resource
         
         return {
             "message": "Document added successfully from file.",

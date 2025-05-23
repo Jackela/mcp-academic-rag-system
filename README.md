@@ -133,15 +133,49 @@ Currently implemented tools (some are placeholders):
 
 ### 资源 (Resources)
 
-The server can register and serve various resources. Resource `content` is not included in the initial capabilities discovery but can be fetched using the `get_resource` command (see "MCP Commands" section).
+The server can register and serve various resources. Resource `content` is not included in the initial capabilities discovery but can be fetched using the `get_resource` command (see "MCP Commands" section). 
+In addition to any statically defined resources, all documents stored by the server (from `documents.json`) are dynamically exposed as MCP resources.
 
--   **Sample Resource:**
+#### Dynamic Document Resources
+
+Documents stored in the server's `documents.json` file (including default documents and any added via tools) are automatically registered as MCP resources.
+
+*   **URI Scheme:** `mcp://resources/documents/{document_id}`
+    *   Example: `mcp://resources/documents/doc101`
+*   **`{document_id}`:** This corresponds to the `id` field of a document in the `documents.json` store.
+*   **Content:** The `content` of such a resource is the full JSON object of the document itself, including its `id`, `title`, `abstract`, and `keywords`.
+*   **Example `get_resource` for a dynamic document:**
+    Command:
+    ```json
+    {
+        "command": "get_resource",
+        "uri": "mcp://resources/documents/doc101"
+    }
+    ```
+    Expected `resource_data` in the response:
+    ```json
+    {
+        "uri": "mcp://resources/documents/doc101",
+        "name": "Document: Exploring Artificial Intelligence in Modern Healthcare",
+        "description": "Access to document doc101 - 'Exploring Artificial Intelligence in Modern Healthcare'",
+        "mime_type": "application/json",
+        "content": {
+            "id": "doc101",
+            "title": "Exploring Artificial Intelligence in Modern Healthcare",
+            "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+            "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
+        }
+    }
+    ```
+
+#### Static Sample Resource
+
+-   **Sample Resource (Static Example):**
     *   **URI:** `mcp://resources/literature/doc123`
     *   **Name:** Sample Document 123
-    *   **Description:** A sample academic paper providing placeholder content. Its content includes fields like `title`, `author`, `abstract`, etc.
-    *   This resource is registered by default and can be retrieved using the `get_resource` command.
+    *   **Description:** A sample academic paper providing placeholder content, distinct from the dynamically available document resources from `documents.json`. Its content includes fields like `title`, `author`, `abstract`, etc.
+    *   This resource is registered by default for demonstration and can be retrieved using the `get_resource` command.
 
-- **(Planned) 文献资源**：访问已处理文献的结构化内容
 - **(Planned) 会话历史**：查看和继续之前的交互记录
 - **(Planned) 文献集合**：管理主题相关的文献分组
 
@@ -201,7 +235,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
 - [x] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store, add_document_from_file core logic implemented; persistent storage for docs)
-- [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
+- [x] MCP资源 (Resources) 功能开发 (Documents in store dynamically available as resources via mcp://resources/documents/{id}; sample static resource 'literature/doc123' also present. 'get_resource' command implemented.)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
 - [x] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, add_document_to_store, and add_document_from_file via .txt upload)
 - [x] 高级RAG功能增强 (document_search, add_document_to_store, add_document_from_file use a persistent JSON-based document store 'documents.json')
@@ -294,37 +328,32 @@ This section details common MCP commands supported by the server across differen
     ```json
     {
         "command": "get_resource",
-        "uri": "mcp://resources/literature/doc123"
+        "uri": "mcp://resources/documents/doc101"
     }
     ```
 *   **Success Response (STDIO or `resource_data` SSE event data):**
     The full resource object, including its `uri`, `name`, `description`, `mime_type`, and `content`.
-    Example for `mcp://resources/literature/doc123`:
+    Example for `mcp://resources/documents/doc101` (assuming `doc101` is from the default document store):
     ```json
     {
         "mcp_protocol_version": "1.0",
         "status": "success",
-        "uri": "mcp://resources/literature/doc123",
+        "uri": "mcp://resources/documents/doc101",
         "resource_data": {
-            "uri": "mcp://resources/literature/doc123",
-            "name": "Sample Document 123",
-            "description": "A sample academic paper providing placeholder content.",
+            "uri": "mcp://resources/documents/doc101",
+            "name": "Document: Exploring Artificial Intelligence in Modern Healthcare",
+            "description": "Access to document doc101 - 'Exploring Artificial Intelligence in Modern Healthcare'",
             "mime_type": "application/json",
             "content": {
-                "title": "Foundations of Fictional Science",
-                "author": "Dr. A.I. Construct",
-                "publication_year": 2024,
-                "abstract": "This paper explores the fundamental principles of sciences that don't actually exist.",
-                "body_paragraphs": [
-                    "Paragraph 1 discussing a made-up theory.",
-                    "Paragraph 2 with some fabricated data.",
-                    "Paragraph 3 concluding with speculative insights."
-                ],
-                "keywords": ["fiction", "dummy data", "mcp resource"]
+                "id": "doc101",
+                "title": "Exploring Artificial Intelligence in Modern Healthcare",
+                "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+                "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
             }
         }
     }
     ```
+    (For the static sample `mcp://resources/literature/doc123`, the structure would be similar but with its specific content.)
 *   **Error Responses (STDIO or `resource_error` SSE event data):**
     *   If resource not found: `{"mcp_protocol_version": "1.0", "status": "error", "uri": "<requested_uri>", "error": "Resource not found"}`
     *   If URI missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}`
