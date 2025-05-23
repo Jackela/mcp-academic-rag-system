@@ -14,9 +14,55 @@
 
 ### 工具 (Tools)
 
-- **文献搜索工具**：通过关键词、主题或语义查询查找相关文献
-- **文献处理工具**：上传、OCR处理和结构化文献内容
-- **聊天会话工具**：管理基于文献内容的对话交互
+Currently implemented tools (some are placeholders):
+
+-   **`echo`**
+    *   **Description:** Echoes back the input message.
+    *   **MCP Command Parameters (`tool_params`):**
+        *   `message` (string, required): The message to echo.
+    *   **Example Result:** `{"echo_response": "your message"}`
+
+-   **`document_search`**
+    *   **Description:** Searches academic documents based on a query. (Currently returns dummy data)
+    *   **MCP Command Parameters (`tool_params`):**
+        *   `query` (string, required): The search term or question.
+        *   `max_results` (integer, optional, default: 3): The maximum number of search results to return.
+    *   **Example MCP Command (for POST to `/mcp_command` or STDIO input):**
+        ```json
+        {
+            "command": "execute_tool",
+            "tool_name": "document_search",
+            "tool_params": {
+                "query": "artificial intelligence in healthcare",
+                "max_results": 5
+            }
+        }
+        ```
+    *   **Example Result (in `data` field of `tool_result` SSE event or STDIO output):**
+        ```json
+        {
+            "search_results": [
+                {
+                    "id": "doc_1",
+                    "title": "Dummy Document 1 about 'artificial intelligence in healthcare'",
+                    "snippet": "This is a snippet for document 1 which matches the query: 'artificial intelligence in healthcare'.",
+                    "score": 1.0
+                },
+                {
+                    "id": "doc_2",
+                    "title": "Dummy Document 2 about 'artificial intelligence in healthcare'",
+                    "snippet": "This is a snippet for document 2 which matches the query: 'artificial intelligence in healthcare'.",
+                    "score": 0.5
+                }
+            ],
+            "query_received": "artificial intelligence in healthcare"
+        }
+        ```
+        (Note: The example above shows 2 results if `max_results` was 2; the actual number of results will match `max_results` up to the available dummy data count.)
+
+- **(Planned) 文献搜索工具**：通过关键词、主题或语义查询查找相关文献
+- **(Planned) 文献处理工具**：上传、OCR处理和结构化文献内容
+- **(Planned) 聊天会话工具**：管理基于文献内容的对话交互
 
 ### 资源 (Resources)
 
@@ -47,8 +93,8 @@
 - [x] 基础文档处理流水线实现
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
-- [x] **MCP服务器接口实现** (STDIO transport, basic tool execution)
-- [ ] MCP工具 (Tools) 功能开发
+- [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
+- [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [ ] MCP资源 (Resources) 功能开发
 - [ ] MCP提示 (Prompts) 功能开发
 - [ ] Web界面开发
@@ -93,3 +139,36 @@ The server can be run using `app.py` and defaults to STDIO transport.
         ```
         quit
         ```
+
+## SSE Usage
+
+### Starting the Server in SSE Mode
+
+To use Server-Sent Events (SSE) for communication, run the server with the `--transport sse` flag. You can also specify a port (defaults to 3000):
+
+```bash
+python3 app.py --transport sse --port 8000
+```
+
+### Interacting over SSE
+
+Once the server is running in SSE mode (e.g., on port 8000):
+
+1.  **Listen for events (including initial capabilities):**
+    Use `curl` or a similar tool to connect to the SSE endpoint. The server will stream events here.
+    The correct path for SSE is `/mcp_sse`.
+    ```bash
+    curl -N http://localhost:8000/mcp_sse
+    ```
+    You should immediately receive an `event: capabilities` with the server details. Subsequent events (like tool results or errors) will appear here.
+
+2.  **Send commands:**
+    Commands are sent via HTTP POST requests to the `/mcp_command` endpoint.
+    ```bash
+    # Example: Execute the "echo" tool
+    curl -X POST -H "Content-Type: application/json" \
+         -d '{"command": "execute_tool", "tool_name": "echo", "tool_params": {"message": "Hello from SSE client"}}' \
+         http://localhost:8000/mcp_command
+    ```
+    The POST request will receive an HTTP 202 Accepted response: `{"status": "accepted", "message": "Tool execution initiated."}`.
+    The actual result of the "echo" tool will then be broadcast as an SSE event (e.g., `event: tool_result`) to all connected SSE clients (including your `curl -N` session).
