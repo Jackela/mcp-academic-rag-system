@@ -23,7 +23,7 @@ Currently implemented tools (some are placeholders):
     *   **Example Result:** `{"echo_response": "your message"}`
 
 -   **`document_search`**
-    *   **Description:** Searches a predefined in-memory list of sample academic documents. The search is case-insensitive and covers document titles, abstracts, and keywords.
+    *   **Description:** Searches a persistent list of academic documents. The document store is loaded from `documents.json` on server start and saved to this file when new documents are added. Documents added via the `add_document_to_store` tool will persist across server restarts. The search is case-insensitive and covers document titles, abstracts, and keywords.
     *   **MCP Command Parameters (`tool_params`):**
         *   `query` (string, required): The search term or question.
         *   `max_results` (integer, optional, default: 3): The maximum number of search results to return.
@@ -52,10 +52,10 @@ Currently implemented tools (some are placeholders):
             "query_received": "healthcare"
         }
         ```
-        (Note: The actual results will depend on the query and the content of the in-memory document store.)
+        (Note: The actual results will depend on the query and the content of the `documents.json` file.)
 
 -   **`add_document_to_store`**
-    *   **Description:** Adds a new document to the in-memory store from its raw text content. A title is automatically derived from the first line of the text. Keywords are optional.
+    *   **Description:** Adds a new document to the persistent document store (saved in `documents.json`) from its raw text content. A title is automatically derived from the first line of the text. Keywords are optional. Added documents will be available after server restarts.
     *   **MCP Command Parameters (`tool_params`):**
         *   `document_text` (string, required): The full text content of the document.
         *   `keywords` (string, optional): Comma-separated list of keywords.
@@ -75,7 +75,7 @@ Currently implemented tools (some are placeholders):
         ```json
         {
             "message": "Document added successfully from text.",
-            "document_id": "doc201", // Example ID
+            "document_id": "doc201", // Example ID, this ID will be persistent.
             "derived_title": "First line as derived title."
         }
         ```
@@ -150,6 +150,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - **向量化存储**：将文档内容转换为向量表示并存入向量数据库
 - **智能检索**：通过自然语言查询检索相关文献内容
 - **知识对话**：基于文献内容回答用户问题，提供引用来源
+- **持久化存储**：学术文献元数据和内容（或其引用）通过 `documents.json` 文件进行持久化存储，确保服务器重启后数据不丢失。
 
 ## 开发路线图
 
@@ -157,11 +158,11 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
-- [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
+- [/] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store now use persistent storage)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
 - [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, and add_document_to_store)
-- [/] 高级RAG功能增强 (document_search searches in-memory store; documents added from raw text with auto-derived title)
+- [x] 高级RAG功能增强 (document_search and add_document_to_store now use a persistent JSON-based document store 'documents.json')
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 
@@ -368,7 +369,7 @@ A web interface is available to display the server's capabilities and interact w
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
 *   Executing the "document_search" tool by providing a query and maximum number of results.
-*   **Adding a new document to the in-memory store by providing its title, abstract, and keywords.**
+    *   **Adding a new document to the persistent store (`documents.json`) by providing its text content and optional keywords.**
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 

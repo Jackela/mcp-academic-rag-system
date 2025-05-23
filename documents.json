@@ -1,0 +1,49 @@
+[
+    {
+        "id": "doc101",
+        "title": "Exploring Artificial Intelligence in Modern Healthcare",
+        "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+        "keywords": [
+            "ai",
+            "healthcare",
+            "diagnostics",
+            "machine learning",
+            "treatment"
+        ]
+    },
+    {
+        "id": "doc102",
+        "title": "The Future of Renewable Energy Sources",
+        "abstract": "A comprehensive review of solar, wind, and geothermal energy technologies and their potential.",
+        "keywords": [
+            "renewable energy",
+            "solar",
+            "wind",
+            "geothermal",
+            "sustainability"
+        ]
+    },
+    {
+        "id": "doc103",
+        "title": "Quantum Computing: A New Paradigm",
+        "abstract": "This article introduces the fundamental concepts of quantum computing and its applications.",
+        "keywords": [
+            "quantum computing",
+            "qubits",
+            "algorithms",
+            "cryptography"
+        ]
+    },
+    {
+        "id": "doc104",
+        "title": "Advanced Machine Learning Techniques for NLP",
+        "abstract": "Deep learning models and transformers are revolutionizing Natural Language Processing.",
+        "keywords": [
+            "machine learning",
+            "nlp",
+            "deep learning",
+            "transformers",
+            "ai"
+        ]
+    }
+]

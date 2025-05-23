@@ -239,10 +239,11 @@ class McpServer:
         self.sse_clients = [] 
         self.http_server_thread = None
         self.http_server = None
-        self.next_doc_id_counter = 200 
+        self.next_doc_id_counter = 200
         logger.info(f"创建MCP服务器: {name} v{version}")
 
-        self.document_store = [
+        self.document_store_file = "documents.json"
+        default_documents = [
             {
                 "id": "doc101", "title": "Exploring Artificial Intelligence in Modern Healthcare",
                 "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
@@ -264,6 +265,24 @@ class McpServer:
                 "keywords": ["machine learning", "nlp", "deep learning", "transformers", "ai"]
             }
         ]
+
+        try:
+            with open(self.document_store_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if not content: # Check for empty file
+                    raise ValueError("File is empty")
+                self.document_store = json.loads(content)
+            logger.info(f"Loaded document store from {self.document_store_file}")
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"{self.document_store_file} not found, empty, or invalid JSON ({e}). Initializing with default documents and creating/overwriting the file.")
+            self.document_store = default_documents
+            try:
+                with open(self.document_store_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.document_store, f, indent=4)
+                logger.info(f"Saved default document store to {self.document_store_file}")
+            except IOError as ioe:
+                logger.error(f"Could not write initial document store to {self.document_store_file}: {ioe}")
+
 
         self.register_tool(
             name="echo",
@@ -368,6 +387,17 @@ class McpServer:
         self.next_doc_id_counter += 1
         return doc_id
 
+    def _save_document_store_to_file(self) -> None:
+        """Saves the current document store to the JSON file."""
+        try:
+            with open(self.document_store_file, 'w', encoding='utf-8') as f:
+                json.dump(self.document_store, f, indent=4)
+            logger.info(f"Document store successfully saved to {self.document_store_file}")
+        except IOError as e:
+            logger.error(f"Could not save document store to {self.document_store_file}: {e}")
+        except Exception as e: # Catch any other unexpected errors during saving
+            logger.error(f"An unexpected error occurred while saving document store: {e}", exc_info=True)
+
     def _execute_add_document_to_store_impl(self, params: dict) -> dict:
         document_text = params.get("document_text")
         keywords_str = params.get("keywords", "")
@@ -399,6 +429,7 @@ class McpServer:
         
         self.document_store.append(new_document)
         logger.info(f"Added new document from text: {new_doc_id} - {new_document['title']}")
+        self._save_document_store_to_file() # Persist changes
         
         return {
             "message": "Document added successfully from text.",
