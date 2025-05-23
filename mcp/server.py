@@ -16,6 +16,8 @@ import threading
 import functools # For functools.partial
 import urllib.parse # For parsing URL in handler
 import os # Added for path operations
+import base64 # For decoding file content
+import binascii # For Base64 error handling
 
 # 日志配置
 logger = logging.getLogger(__name__)
@@ -242,6 +244,7 @@ class McpServer:
         self.next_doc_id_counter = 200
         logger.info(f"创建MCP服务器: {name} v{version}")
 
+        # Load document store first
         self.document_store_file = "documents.json"
         default_documents = [
             {
@@ -283,6 +286,14 @@ class McpServer:
             except IOError as ioe:
                 logger.error(f"Could not write initial document store to {self.document_store_file}: {ioe}")
 
+        # Register existing documents from the store as resources
+        if self.document_store: # Ensure document_store is not None or empty
+            logger.info(f"Registering {len(self.document_store)} documents from store as MCP resources...")
+            for doc_idx, doc in enumerate(self.document_store):
+                logger.debug(f"Registering document at index {doc_idx}: {doc.get('id')}")
+                self._register_document_as_resource(doc)
+        else:
+            logger.info("Document store is empty. No documents to register as resources initially.")
 
         self.register_tool(
             name="echo",
@@ -315,6 +326,29 @@ class McpServer:
                 "required": ["document_text"]
             },
             callback=self._execute_add_document_to_store_impl
+        )
+        self.register_tool(
+            name="add_document_from_file",
+            description="Adds a new document to the store from an uploaded text file (.txt). The file content is provided as a Base64 encoded string.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "file_content_base64": {
+                        "type": "string",
+                        "description": "Base64 encoded content of the .txt file."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "The original name of the file (e.g., \"mypaper.txt\")."
+                    },
+                    "keywords": {
+                        "type": "string",
+                        "description": "Optional comma-separated list of keywords."
+                    }
+                },
+                "required": ["file_content_base64", "filename"]
+            },
+            callback=self._execute_add_document_from_file_impl
         )
         self.register_resource(
             uri="mcp://resources/literature/doc123",
@@ -387,11 +421,42 @@ class McpServer:
         self.next_doc_id_counter += 1
         return doc_id
 
+    def _register_document_as_resource(self, document: dict) -> None:
+        """Helper method to register a single document as an MCP resource."""
+        if not document or 'id' not in document:
+            logger.warning("Attempted to register a document resource without an ID or empty document. Skipping.")
+            return
+
+        doc_id = document['id']
+        # Use a sensible default if title is missing or empty after stripping
+        doc_title_str = str(document.get('title', '')).strip()
+        if not doc_title_str:
+            doc_title = f"Document {doc_id}" # Fallback title using ID
+        else:
+            doc_title = doc_title_str
+
+        uri = f"mcp://resources/documents/{doc_id}"
+
+        # Ensure content is a dictionary (it should be if document is from document_store)
+        content_data = document if isinstance(document, dict) else {}
+        
+        resource_definition = {
+            'uri': uri,
+            'name': f"Document: {doc_title}", # Use the processed doc_title
+            'description': f"Access to document {doc_id} - '{doc_title}'", # Use processed doc_title
+            'mime_type': 'application/json', 
+            'content': content_data 
+        }
+        self.resources[uri] = resource_definition
+        logger.info(f"Registered document {doc_id} as MCP resource: {uri}")
+
+
     def _save_document_store_to_file(self) -> None:
         """Saves the current document store to the JSON file."""
         try:
+            logger.debug(f"Attempting to save document store. Full store repr: {repr(self.document_store)}")
             with open(self.document_store_file, 'w', encoding='utf-8') as f:
-                json.dump(self.document_store, f, indent=4)
+                json.dump(self.document_store, f, indent=4, ensure_ascii=True)
             logger.info(f"Document store successfully saved to {self.document_store_file}")
         except IOError as e:
             logger.error(f"Could not save document store to {self.document_store_file}: {e}")
@@ -430,11 +495,93 @@ class McpServer:
         self.document_store.append(new_document)
         logger.info(f"Added new document from text: {new_doc_id} - {new_document['title']}")
         self._save_document_store_to_file() # Persist changes
+        self._register_document_as_resource(new_document) # Register new doc as resource
         
         return {
             "message": "Document added successfully from text.",
             "document_id": new_doc_id,
             "derived_title": new_document['title']
+        }
+
+    def _execute_add_document_from_file_impl(self, params: dict) -> dict:
+        file_content_base64 = params.get("file_content_base64")
+        filename_param = params.get("filename")
+        keywords_str = params.get("keywords", "")
+
+        # Sanitize filename to remove any potential null characters if they are somehow introduced.
+        filename = ""
+        if filename_param:
+            filename = str(filename_param).replace('\x00', '') # Basic null char removal
+
+        # filename cannot be an empty string. file_content_base64 can be an empty string (for an empty file) but must be present.
+        if file_content_base64 is None or not filename.strip():
+            return {"error": "Missing required parameter: file_content_base64 must be provided (can be an empty string), and filename must be a non-empty string."}
+
+        try:
+            decoded_bytes = base64.b64decode(file_content_base64)
+            decoded_text = decoded_bytes.decode('utf-8')
+        except (binascii.Error, UnicodeDecodeError) as e: # Corrected exception handling
+            logger.warning(f"Failed to decode Base64 content for file {filename}: {e}")
+            return {"error": "Invalid Base64 content or UTF-8 decoding error."}
+        except Exception as e: # Catch any other unexpected error during decoding
+            logger.error(f"Unexpected error decoding file {filename}: {e}", exc_info=True)
+            return {"error": "An unexpected error occurred during file decoding."}
+
+        stripped_decoded_text = decoded_text.strip()
+        
+        # Aggressively sanitize the title derived from filename
+        temp_title_from_fn = os.path.splitext(filename)[0]
+        # Encode to ASCII ignoring errors, then decode back to ASCII. This should strip problematic chars.
+        default_title_from_filename = temp_title_from_fn.encode('ascii', 'ignore').decode('ascii')
+        
+        if not default_title_from_filename: # If encoding to ascii made it empty or it was already bad
+            default_title_from_filename = "Untitled Document from File" # Fallback
+
+        if not stripped_decoded_text:
+            derived_title = default_title_from_filename 
+        else:
+            lines = stripped_decoded_text.split('\n', 1)
+            first_line = lines[0].strip()
+            if not first_line:
+                derived_title = default_title_from_filename
+            else:
+                # For title from content, ensure it's also clean, though less likely to be an issue here
+                cleaned_first_line = first_line.encode('ascii', 'ignore').decode('ascii')
+                derived_title = cleaned_first_line[:100] if cleaned_first_line else default_title_from_filename
+
+        new_doc_id = self._generate_next_doc_id()
+        keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
+
+        # Sanitize derived_title using isprintable()
+        derived_title_sanitized = "".join(c for c in derived_title if c.isprintable()).strip()
+        if not derived_title_sanitized:
+            # Try to use the sanitized filename (without extension) as a fallback
+            # default_title_from_filename was already sanitized with encode/decode ascii
+            fallback_title = default_title_from_filename 
+            if not fallback_title.strip(): # If even that is empty (e.g. filename was just ".txt" or non-ascii)
+                 fallback_title = "Untitled Document" # Final fallback
+            derived_title_sanitized = fallback_title
+        
+        # Sanitize decoded_text (abstract) using isprintable() but allow common whitespace
+        abstract_sanitized = "".join(c for c in decoded_text if c.isprintable() or c in ('\n', '\r', '\t'))
+        
+        new_document = {
+            "id": new_doc_id,
+            "title": derived_title_sanitized,
+            "abstract": abstract_sanitized, 
+            "keywords": keywords
+        }
+        
+        self.document_store.append(new_document)
+        logger.info(f"Added new document from file {filename}: {new_doc_id} - {derived_title_sanitized}")
+        self._save_document_store_to_file()
+        self._register_document_as_resource(new_document) # Register new doc as resource
+        
+        return {
+            "message": "Document added successfully from file.",
+            "document_id": new_doc_id,
+            "derived_title": derived_title_sanitized,
+            "original_filename": filename
         }
 
     def _execute_document_search_impl(self, params: dict) -> dict:

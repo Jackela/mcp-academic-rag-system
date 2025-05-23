@@ -86,21 +86,96 @@ Currently implemented tools (some are placeholders):
         }
         ```
 
+-   **`add_document_from_file`**
+    *   **Description:** Adds a new document to the store from an uploaded text file (.txt). The file content is provided as a Base64 encoded string. The server decodes the text, derives a title (from the first line or filename), and stores the document.
+    *   **MCP Command Parameters (`tool_params`):**
+        *   `file_content_base64` (string, required): Base64 encoded content of the .txt file.
+        *   `filename` (string, required): The original name of the file (e.g., "mypaper.txt").
+        *   `keywords` (string, optional): Comma-separated list of keywords.
+    *   **Example MCP Command:**
+        ```json
+        {
+            "command": "execute_tool",
+            "tool_name": "add_document_from_file",
+            "tool_params": {
+                "filename": "example_document.txt",
+                "file_content_base64": "Rmlyc3QgbGluZSBhcyBkZXJpdmVkIHRpdGxlLgpUaGlzIGlzIHRoZSByZXN0IG9mIHRoZSBkb2N1bWVudCBjb250ZW50LCB3aGljaCB3aWxsIGJlIHN0b3JlZCBhcyB0aGUgYWJzdHJhY3Qu",
+                "keywords": "file upload, base64, example"
+            }
+        }
+        ```
+        (Note: The Base64 string is "First line as derived title.\nThis is the rest of the document content, which will be stored as the abstract.")
+    *   **Example Result (in `data` field of `tool_result` SSE event or STDIO output):**
+        Success:
+        ```json
+        {
+            "message": "Document added successfully from file.",
+            "document_id": "doc202", // Example ID
+            "derived_title": "First line as derived title.",
+            "original_filename": "example_document.txt"
+        }
+        ```
+        Error (e.g., missing parameters or invalid base64):
+        ```json
+        {
+            "error": "Missing required parameter: file_content_base64 or filename cannot be empty."
+        }
+        ```
+        ```json
+        {
+            "error": "Invalid Base64 content."
+        }
+        ```
+
 - **(Planned) 文献搜索工具**：Through keyword, topic, or semantic queries to find relevant documents from a larger, persistent database.
-- **(Planned) 文献处理工具**：上传、OCR处理和结构化文献内容
+- **(Planned) 文献处理工具**：Advanced OCR processing, and structuring of various document formats (PDF, DOCX). Current basic .txt upload is a step towards this.
 - **(Planned) 聊天会话工具**：管理基于文献内容的对话交互
 
 ### 资源 (Resources)
 
-The server can register and serve various resources. Resource `content` is not included in the initial capabilities discovery but can be fetched using the `get_resource` command (see "MCP Commands" section).
+The server can register and serve various resources. Resource `content` is not included in the initial capabilities discovery but can be fetched using the `get_resource` command (see "MCP Commands" section). 
+In addition to any statically defined resources, all documents stored by the server (from `documents.json`) are dynamically exposed as MCP resources.
 
--   **Sample Resource:**
+#### Dynamic Document Resources
+
+Documents stored in the server's `documents.json` file (including default documents and any added via tools) are automatically registered as MCP resources.
+
+*   **URI Scheme:** `mcp://resources/documents/{document_id}`
+    *   Example: `mcp://resources/documents/doc101`
+*   **`{document_id}`:** This corresponds to the `id` field of a document in the `documents.json` store.
+*   **Content:** The `content` of such a resource is the full JSON object of the document itself, including its `id`, `title`, `abstract`, and `keywords`.
+*   **Example `get_resource` for a dynamic document:**
+    Command:
+    ```json
+    {
+        "command": "get_resource",
+        "uri": "mcp://resources/documents/doc101"
+    }
+    ```
+    Expected `resource_data` in the response:
+    ```json
+    {
+        "uri": "mcp://resources/documents/doc101",
+        "name": "Document: Exploring Artificial Intelligence in Modern Healthcare",
+        "description": "Access to document doc101 - 'Exploring Artificial Intelligence in Modern Healthcare'",
+        "mime_type": "application/json",
+        "content": {
+            "id": "doc101",
+            "title": "Exploring Artificial Intelligence in Modern Healthcare",
+            "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+            "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
+        }
+    }
+    ```
+
+#### Static Sample Resource
+
+-   **Sample Resource (Static Example):**
     *   **URI:** `mcp://resources/literature/doc123`
     *   **Name:** Sample Document 123
-    *   **Description:** A sample academic paper providing placeholder content. Its content includes fields like `title`, `author`, `abstract`, etc.
-    *   This resource is registered by default and can be retrieved using the `get_resource` command.
+    *   **Description:** A sample academic paper providing placeholder content, distinct from the dynamically available document resources from `documents.json`. Its content includes fields like `title`, `author`, `abstract`, etc.
+    *   This resource is registered by default for demonstration and can be retrieved using the `get_resource` command.
 
-- **(Planned) 文献资源**：访问已处理文献的结构化内容
 - **(Planned) 会话历史**：查看和继续之前的交互记录
 - **(Planned) 文献集合**：管理主题相关的文献分组
 
@@ -143,7 +218,8 @@ The server can register and provide definitions for various prompt templates. Pr
 
 本系统是一个基于API的学术文献OCR电子化、自动分类与智能检索平台，采用流水线架构处理学术文献，将扫描文档转换为结构化电子格式，并提供基于向量数据库的智能检索与自然语言对话功能。
 
-- **文档OCR处理**：将扫描的学术文献转换为可搜索文本
+- **文档OCR处理**：将扫描的学术文献转换为可搜索文本 (Planned, current support is for .txt uploads)
+- **文档内容导入**: 支持从纯文本文件 (.txt) 上传文档内容，并自动提取标题。
 - **文档结构识别**：自动识别标题、摘要、章节等结构元素
 - **内容自动分类**：基于内容对文献进行主题分类和标签标注
 - **格式转换**：生成Markdown和PDF输出，保留原文排版
@@ -158,11 +234,12 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
-- [/] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store now use persistent storage)
-- [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
+- [x] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store, add_document_from_file core logic implemented; persistent storage for docs)
+- [x] MCP资源 (Resources) 功能开发 (Documents in store dynamically available as resources via mcp://resources/documents/{id}; sample static resource 'literature/doc123' also present. 'get_resource' command implemented.)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, and add_document_to_store)
-- [x] 高级RAG功能增强 (document_search and add_document_to_store now use a persistent JSON-based document store 'documents.json')
+- [x] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, add_document_to_store, and add_document_from_file via .txt upload)
+- [x] 高级RAG功能增强 (document_search, add_document_to_store, add_document_from_file use a persistent JSON-based document store 'documents.json')
+- [ ] 文献处理工具 (Advanced OCR, structuring for PDF/DOCX. Basic .txt upload via `add_document_from_file` implemented as a first step)
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 
@@ -251,37 +328,32 @@ This section details common MCP commands supported by the server across differen
     ```json
     {
         "command": "get_resource",
-        "uri": "mcp://resources/literature/doc123"
+        "uri": "mcp://resources/documents/doc101"
     }
     ```
 *   **Success Response (STDIO or `resource_data` SSE event data):**
     The full resource object, including its `uri`, `name`, `description`, `mime_type`, and `content`.
-    Example for `mcp://resources/literature/doc123`:
+    Example for `mcp://resources/documents/doc101` (assuming `doc101` is from the default document store):
     ```json
     {
         "mcp_protocol_version": "1.0",
         "status": "success",
-        "uri": "mcp://resources/literature/doc123",
+        "uri": "mcp://resources/documents/doc101",
         "resource_data": {
-            "uri": "mcp://resources/literature/doc123",
-            "name": "Sample Document 123",
-            "description": "A sample academic paper providing placeholder content.",
+            "uri": "mcp://resources/documents/doc101",
+            "name": "Document: Exploring Artificial Intelligence in Modern Healthcare",
+            "description": "Access to document doc101 - 'Exploring Artificial Intelligence in Modern Healthcare'",
             "mime_type": "application/json",
             "content": {
-                "title": "Foundations of Fictional Science",
-                "author": "Dr. A.I. Construct",
-                "publication_year": 2024,
-                "abstract": "This paper explores the fundamental principles of sciences that don't actually exist.",
-                "body_paragraphs": [
-                    "Paragraph 1 discussing a made-up theory.",
-                    "Paragraph 2 with some fabricated data.",
-                    "Paragraph 3 concluding with speculative insights."
-                ],
-                "keywords": ["fiction", "dummy data", "mcp resource"]
+                "id": "doc101",
+                "title": "Exploring Artificial Intelligence in Modern Healthcare",
+                "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+                "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
             }
         }
     }
     ```
+    (For the static sample `mcp://resources/literature/doc123`, the structure would be similar but with its specific content.)
 *   **Error Responses (STDIO or `resource_error` SSE event data):**
     *   If resource not found: `{"mcp_protocol_version": "1.0", "status": "error", "uri": "<requested_uri>", "error": "Resource not found"}`
     *   If URI missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}`
@@ -369,7 +441,8 @@ A web interface is available to display the server's capabilities and interact w
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
 *   Executing the "document_search" tool by providing a query and maximum number of results.
-    *   **Adding a new document to the persistent store (`documents.json`) by providing its text content and optional keywords.**
+*   Adding a new document via direct text input using the `add_document_to_store` tool.
+*   Adding a new document from a .txt file upload using the `add_document_from_file` tool (title derived from filename or first line, content stored as abstract).
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 

@@ -45,5 +45,14 @@
             "transformers",
             "ai"
         ]
+    },
+    {
+        "id": "doc200",
+        "title": "My New STDIO Document. Content on one line.",
+        "abstract": "My New STDIO Document. Content on one line.",
+        "keywords": [
+            "stdio_test",
+            "dynamic_resource"
+        ]
     }
 ]

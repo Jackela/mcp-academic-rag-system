@@ -1,0 +1,2 @@
+My Valid Document Title
+This is the content of the valid document.

@@ -88,6 +88,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         displayDiv.textContent = 'Document addition status unknown or malformed result data.';
                     }
                 }
+            } else if (parsedData.tool_name === "add_document_from_file") {
+                displayDiv = document.getElementById('fileUploadResult');
+                if (displayDiv) {
+                    if (parsedData.result && parsedData.result.message) {
+                        displayDiv.textContent = `Success: ${parsedData.result.message} (ID: ${parsedData.result.document_id}, Title: '${parsedData.result.derived_title}', Original File: '${parsedData.result.original_filename}')`;
+                        // Clear input fields on success
+                        const fileInput = document.getElementById('fileInput');
+                        if (fileInput) fileInput.value = '';
+                        const fileKeywordsInput = document.getElementById('fileKeywords');
+                        if (fileKeywordsInput) fileKeywordsInput.value = '';
+                    } else if (parsedData.result && parsedData.result.error) {
+                        displayDiv.textContent = `Error: ${parsedData.result.error}`;
+                    } else {
+                        displayDiv.textContent = 'File upload status unknown or malformed result data.';
+                    }
+                }
             }
         } catch (e) {
             console.error('Error parsing tool_result JSON:', e);
@@ -105,6 +121,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 displayDivId = 'search-result-display';
             } else if (parsedData.tool_name === "add_document_to_store") {
                 displayDivId = 'add-doc-result-display';
+            } else if (parsedData.tool_name === "add_document_from_file") {
+                displayDivId = 'fileUploadResult';
             }
 
             if (displayDivId) {
@@ -358,10 +376,10 @@ function runAddDocumentTool() {
     const keywordsInput = document.getElementById('add-doc-keywords-input');
     const resultDisplay = document.getElementById('add-doc-result-display');
 
-    const document_text = textInput ? textInput.value : ''; // Updated variable name
+    const document_text = textInput ? textInput.value : '';
     const keywords = keywordsInput ? keywordsInput.value : '';
 
-    if (!document_text.trim()) { // Updated validation
+    if (!document_text.trim()) { 
         if(resultDisplay) resultDisplay.textContent = 'Error: Document Text is required.';
         return;
     }
@@ -370,9 +388,85 @@ function runAddDocumentTool() {
         command: "execute_tool",
         tool_name: "add_document_to_store",
         tool_params: {
-            document_text: document_text, // Use new parameter
+            document_text: document_text, 
             keywords: keywords 
         }
     };
     sendMcpCommand(command, 'add-doc-result-display');
+}
+
+// Event listener and handler for Add Document from File
+const addDocFromFileButton = document.getElementById('addDocumentFromFileButton');
+if (addDocFromFileButton) {
+    addDocFromFileButton.addEventListener('click', handleAddDocumentFromFile);
+}
+
+function handleAddDocumentFromFile() {
+    const fileInput = document.getElementById('fileInput');
+    const fileKeywordsInput = document.getElementById('fileKeywords');
+    const fileUploadResultDiv = document.getElementById('fileUploadResult');
+
+    if (!fileInput || !fileKeywordsInput || !fileUploadResultDiv) {
+        console.error('One or more elements for file upload not found.');
+        if (fileUploadResultDiv) fileUploadResultDiv.textContent = 'Error: UI elements missing.';
+        return;
+    }
+
+    fileUploadResultDiv.textContent = ''; // Clear previous messages
+
+    const file = fileInput.files[0];
+    const keywords = fileKeywordsInput.value.trim();
+
+    if (!file) {
+        fileUploadResultDiv.textContent = 'Please select a .txt file.';
+        return;
+    }
+
+    // Basic file type check (optional, but good practice)
+    if (file.type !== 'text/plain' && !file.name.endsWith('.txt')) {
+        fileUploadResultDiv.textContent = 'Error: Invalid file type. Please select a .txt file.';
+        return;
+    }
+
+    fileUploadResultDiv.textContent = 'Processing file...';
+
+    const reader = new FileReader();
+
+    reader.onload = function(event) {
+        const fileContent = event.target.result;
+        let base64Encoded;
+        try {
+            // For UTF-8 text to Base64:
+            // 1. Encode URI components (handles multi-byte UTF-8 chars)
+            // 2. Unescape to get raw byte string
+            // 3. btoa to get Base64
+            base64Encoded = btoa(unescape(encodeURIComponent(fileContent)));
+        } catch (e) {
+            console.error('Error during Base64 encoding:', e);
+            fileUploadResultDiv.textContent = 'Error: Could not encode file content. Ensure it is valid UTF-8 text.';
+            return;
+        }
+
+        const payload = {
+            command: "execute_tool",
+            tool_name: "add_document_from_file",
+            tool_params: {
+                filename: file.name,
+                file_content_base64: base64Encoded,
+                keywords: keywords
+            }
+        };
+        
+        // Use the generic sendMcpCommand function
+        sendMcpCommand(payload, 'fileUploadResult');
+        // The sendMcpCommand will set "Command sent..., waiting for SSE result..."
+        // Actual success/error will be handled by SSE listeners updating fileUploadResultDiv
+    };
+
+    reader.onerror = function(event) {
+        console.error('File reading error:', event);
+        fileUploadResultDiv.textContent = 'Error reading file.';
+    };
+
+    reader.readAsText(file); // Reads as UTF-8 by default
 }
