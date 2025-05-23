@@ -48,22 +48,20 @@
     },
     {
         "id": "doc200",
-        "title": "newlines_isprintable",
-        "abstract": "\n\n",
+        "title": "My Valid Document Title",
+        "abstract": "My Valid Document Title\nThis is the content of the valid document.\n",
         "keywords": [
-            "newlines",
-            "isprintable",
-            "regression"
+            "valid",
+            "test_ui"
         ]
     },
     {
-        "id": "doc200",
-        "title": "Regression Test Title with !@#$%^&*()_+<>?:{}",
-        "abstract": "Regression Test Title with !@#$%^&*()_+<>?:{}\nSome abstract content with\ttab and\nnewline.\n",
+        "id": "doc201",
+        "title": "empty_doc",
+        "abstract": "",
         "keywords": [
-            "regression",
-            "valid",
-            "symbols"
+            "empty",
+            "ui_test"
         ]
     }
 ]

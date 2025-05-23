@@ -37,6 +37,18 @@
         <h2>Available Tools</h2>
         <div id="tools-list">
             <p>No tools loaded yet.</p>
+            <!-- New section for Add Document from File -->
+            <details open>
+                <summary>Add Document from File (.txt)</summary>
+                <div class="tool-interaction">
+                    <label for="fileInput">Select .txt file:</label>
+                    <input type="file" id="fileInput" name="fileInput" accept=".txt"><br><br>
+                    <label for="fileKeywords">Keywords (optional):</label>
+                    <input type="text" id="fileKeywords" name="fileKeywords" placeholder="e.g., ai, research, paper"><br><br>
+                    <button id="addDocumentFromFileButton">Add Document from File</button>
+                    <div id="fileUploadResult" class="result-display"></div>
+                </div>
+            </details>
         </div>
     </div>
 

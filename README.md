@@ -200,10 +200,10 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
-- [/] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store, add_document_from_file core logic implemented; persistent storage for docs)
+- [x] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store, add_document_from_file core logic implemented; persistent storage for docs)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, add_document_to_store; file upload tool not yet integrated)
+- [x] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, add_document_to_store, and add_document_from_file via .txt upload)
 - [x] 高级RAG功能增强 (document_search, add_document_to_store, add_document_from_file use a persistent JSON-based document store 'documents.json')
 - [ ] 文献处理工具 (Advanced OCR, structuring for PDF/DOCX. Basic .txt upload via `add_document_from_file` implemented as a first step)
 - [ ] 安全性和性能优化
@@ -412,8 +412,8 @@ A web interface is available to display the server's capabilities and interact w
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
 *   Executing the "document_search" tool by providing a query and maximum number of results.
-    *   Adding a new document via direct text input using the `add_document_to_store` tool.
-    *   (Planned: UI integration for `add_document_from_file` tool)
+*   Adding a new document via direct text input using the `add_document_to_store` tool.
+*   Adding a new document from a .txt file upload using the `add_document_from_file` tool (title derived from filename or first line, content stored as abstract).
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 
