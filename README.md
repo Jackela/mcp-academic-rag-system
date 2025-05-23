@@ -80,9 +80,17 @@ The server can register and serve various resources. Resource `content` is not i
 
 ### 提示模板 (Prompts)
 
-- **文献分析提示**：用于分析和总结文献内容
-- **比较研究提示**：比较多篇文献的内容和观点
-- **论文撰写辅助提示**：帮助构建论文结构和引用
+The server can register and provide definitions for various prompt templates. Prompt definitions (including name, description, and arguments) can be retrieved using the `get_prompt_definition` command (see "MCP Commands" section). The actual execution of prompts (i.e., generating text based on a template and arguments) is a planned feature.
+
+-   **Sample Prompt: `summarize_document_abstract`**
+    *   **Description:** Generates a brief summary of a document's abstract. Requires the document's resource URI.
+    *   **Arguments:**
+        *   `document_uri` (string, required): The MCP URI of the document resource (e.g., `mcp://resources/literature/doc123`) whose abstract needs summarizing.
+    *   This prompt is registered by default. Its full definition can be fetched using the `get_prompt_definition` command.
+
+- **(Planned) 文献分析提示**：用于分析和总结文献内容
+- **(Planned) 比较研究提示**：比较多篇文献的内容和观点
+- **(Planned) 论文撰写辅助提示**：帮助构建论文结构和引用
 
 ## 系统功能
 
@@ -104,7 +112,7 @@ The server can register and serve various resources. Resource `content` is not i
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
-- [ ] MCP提示 (Prompts) 功能开发
+- [/] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' registered, `get_prompt_definition` command implemented)
 - [ ] Web界面开发
 - [ ] 高级RAG功能增强
 - [ ] 安全性和性能优化
@@ -229,3 +237,42 @@ This section details common MCP commands supported by the server across differen
 *   **Error Responses (STDIO or `resource_error` SSE event data):**
     *   If resource not found: `{"mcp_protocol_version": "1.0", "status": "error", "uri": "<requested_uri>", "error": "Resource not found"}`
     *   If URI missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}`
+
+### `get_prompt_definition`
+
+*   **Description:** Retrieves the definition (name, description, arguments) of a registered MCP prompt.
+*   **Parameters (in JSON payload):**
+    *   `command` (string, required): Must be `"get_prompt_definition"`.
+    *   `name` (string, required): The name of the prompt to retrieve.
+*   **Example MCP Command (for POST to `/mcp_command` or STDIO input):**
+    ```json
+    {
+        "command": "get_prompt_definition",
+        "name": "summarize_document_abstract"
+    }
+    ```
+*   **Success Response (STDIO or `prompt_definition_data` SSE event data):**
+    Contains the prompt's full definition.
+    Example for `summarize_document_abstract`:
+    ```json
+    {
+        "mcp_protocol_version": "1.0",
+        "status": "success",
+        "name": "summarize_document_abstract",
+        "prompt_definition": {
+            "name": "summarize_document_abstract",
+            "description": "Generates a brief summary of a document's abstract. Requires the document's resource URI.",
+            "arguments": [
+                {
+                    "name": "document_uri",
+                    "type": "string",
+                    "description": "The MCP URI of the document resource (e.g., mcp://resources/literature/doc123) whose abstract needs summarizing.",
+                    "required": true
+                }
+            ]
+        }
+    }
+    ```
+*   **Error Responses (STDIO or `prompt_definition_error` SSE event data):**
+    *   If prompt not found: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<requested_name>", "error": "Prompt not found"}`
+    *   If name missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing name for get_prompt_definition"}`
