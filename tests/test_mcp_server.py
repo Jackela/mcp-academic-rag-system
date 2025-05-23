@@ -28,8 +28,9 @@ class TestMcpServer(unittest.TestCase):
         self.mock_stdout = io.StringIO() 
         sys.stdout = self.mock_stdout
 
-        self.server = None 
+        self.server = None
         self.sse_test_port = find_free_port()
+        self.test_doc_file_path = "test_temp_documents.json" # For isolated document store
         self.sample_resource_uri = "mcp://resources/literature/doc123"
         self.sample_resource_name = "Sample Document 123"
         self.sample_resource_title = "Foundations of Fictional Science"
@@ -38,16 +39,13 @@ class TestMcpServer(unittest.TestCase):
         self.sample_prompt_description = "Generates a brief summary of a document's abstract. Requires the document's resource URI."
         self.temp_resource_no_abstract_uri = "mcp://resources/temp/no_abstract_doc"
         
-        # Sample document store for reference in tests
-        self.sample_document_store_content = [
-            {
-                "id": "doc101", "title": "Exploring Artificial Intelligence in Modern Healthcare",
-                "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
-                "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
-            },
-            # ... other sample docs from McpServer.__init__ if needed for specific tests
-        ]
-        
+        # Ensure a clean state for the test document file
+        if os.path.exists(self.test_doc_file_path):
+            os.remove(self.test_doc_file_path)
+        # Write sample content to the test document file for DocumentManager to load
+        with open(self.test_doc_file_path, 'w', encoding='utf-8') as f:
+            json.dump(self.sample_document_store_content_for_server(), f, indent=4)
+
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             index_html_path = os.path.join(script_dir, '..', 'web', 'index.html')
@@ -65,23 +63,28 @@ class TestMcpServer(unittest.TestCase):
 
     def tearDown(self):
         if self.server and hasattr(self.server, 'running') and self.server.running:
-            if self.temp_resource_no_abstract_uri in self.server.resources:
+            if self.temp_resource_no_abstract_uri in self.server.resources: # This is fine
                 del self.server.resources[self.temp_resource_no_abstract_uri]
             
             self.server.stop()
             if self.server.http_server_thread and self.server.http_server_thread.is_alive():
-                 self.server.http_server_thread.join(timeout=1) 
+                 self.server.http_server_thread.join(timeout=1)
         
         sys.stdin = self.original_stdin
         sys.stdout = self.original_stdout
+        
+        # Clean up the test document file
+        if os.path.exists(self.test_doc_file_path):
+            os.remove(self.test_doc_file_path)
         time.sleep(0.05)
 
 
     def _start_stdio_server(self):
-        self.server = McpServer(name="Test STDIO Server", version="0.0.1")
-        # Reset document store to initial state for tests that modify it
-        self.server.document_store = [doc.copy() for doc in self.sample_document_store_content_for_server()]
-        self.server.next_doc_id_counter = 200 # Reset counter
+        # Re-initialize the test document file for a clean state for this server instance
+        with open(self.test_doc_file_path, 'w', encoding='utf-8') as f:
+            json.dump(self.sample_document_store_content_for_server(), f, indent=4)
+        self.server = McpServer(name="Test STDIO Server", version="0.0.1", document_store_file_override=self.test_doc_file_path)
+        # Document store and ID counter are now managed by DocumentManager within McpServer
         return self.server
 
     def _run_server_for_input(self, server_instance, input_str):
@@ -94,15 +97,16 @@ class TestMcpServer(unittest.TestCase):
     def _start_sse_server(self, port=None):
         if port is None:
             port = self.sse_test_port
-        
-        self.server = McpServer(name="Test SSE Server", version="0.0.1")
-        # Reset document store for SSE tests as well
-        self.server.document_store = [doc.copy() for doc in self.sample_document_store_content_for_server()]
-        self.server.next_doc_id_counter = 200 # Reset counter
+
+        # Re-initialize the test document file for a clean state
+        with open(self.test_doc_file_path, 'w', encoding='utf-8') as f:
+            json.dump(self.sample_document_store_content_for_server(), f, indent=4)
+        self.server = McpServer(name="Test SSE Server", version="0.0.1", document_store_file_override=self.test_doc_file_path)
+        # Document store and ID counter are now managed by DocumentManager
 
         self.server.start(transport_type='sse', port=port)
         
-        time.sleep(0.1) 
+        time.sleep(0.1) # Allow server thread to start
         if not self.server.running or not self.server.http_server_thread or not self.server.http_server_thread.is_alive():
             if self.server: self.server.stop()
             raise RuntimeError(f"MCP SSE server failed to start on port {port}")
@@ -166,18 +170,22 @@ class TestMcpServer(unittest.TestCase):
         server = McpServer(name="Test Server", version="0.0.1") 
         self.assertEqual(server.name, "Test Server")
         self.assertIn("echo", server.tools)
-        self.assertIn("document_search", server.tools) 
-        self.assertIn("add_document_to_store", server.tools) # Check new tool
+        self.assertIn("document_search", server.tools)
+        self.assertIn("add_document_to_store", server.tools)
         add_doc_tool = server.tools["add_document_to_store"]
-        self.assertEqual(add_doc_tool["description"], "Adds a new document to the in-memory document store. Requires title, abstract, and keywords.")
+        # Corrected assertion based on actual tool definition in server.py
+        self.assertEqual(add_doc_tool["description"], "Adds a new document to the in-memory store from raw text. A title is auto-generated. Keywords are optional.")
         self.assertTrue(callable(add_doc_tool["callback"]))
-        self.assertIn("title", add_doc_tool["schema"]["required"])
-        self.assertIn("abstract", add_doc_tool["schema"]["required"])
-        self.assertIn("keywords", add_doc_tool["schema"]["required"])
+        self.assertIn("document_text", add_doc_tool["schema"]["required"]) # Corrected
+        self.assertNotIn("title", add_doc_tool["schema"]["required"]) # Corrected
+        self.assertNotIn("abstract", add_doc_tool["schema"]["required"]) # Corrected
+        # Keywords are optional in the implementation, schema might reflect this or be 'string'
+        self.assertIn("keywords", add_doc_tool["schema"]["properties"])
 
-        self.assertIn(self.sample_resource_uri, server.resources) 
+
+        self.assertIn(self.sample_resource_uri, server.resources)
         self.assertEqual(server.resources[self.sample_resource_uri]["name"], self.sample_resource_name)
-        self.assertIn(self.sample_prompt_name, server.prompts) 
+        self.assertIn(self.sample_prompt_name, server.prompts)
         self.assertEqual(server.prompts[self.sample_prompt_name]["description"], self.sample_prompt_description)
 
 
@@ -195,71 +203,77 @@ class TestMcpServer(unittest.TestCase):
         
         tools_by_name = {t["name"]: t for t in response["tools"]}
         self.assertIn("add_document_to_store", tools_by_name)
-        self.assertEqual(tools_by_name["add_document_to_store"]["description"], "Adds a new document to the in-memory document store. Requires title, abstract, and keywords.")
+        # Corrected assertion for description and schema
+        self.assertEqual(tools_by_name["add_document_to_store"]["description"], "Adds a new document to the in-memory store from raw text. A title is auto-generated. Keywords are optional.")
+        self.assertIn("document_text", tools_by_name["add_document_to_store"]["schema"]["required"])
 
     def test_stdio_add_document_success(self):
         server = self._start_stdio_server()
-        initial_doc_count = len(server.document_store)
+        initial_doc_count = len(server.document_manager.list_documents())
         
-        title = "Test Doc Title STDIO"
-        abstract = "Abstract for STDIO test."
+        doc_text = "Test Doc Title STDIO\nThis is the abstract for STDIO test."
         keywords = "test,stdio,new"
+        expected_derived_title = "Test Doc Title STDIO"
         command = json.dumps({
             "command": "execute_tool", 
             "tool_name": "add_document_to_store", 
-            "tool_params": {"title": title, "abstract": abstract, "keywords": keywords}
+            "tool_params": {"document_text": doc_text, "keywords": keywords} # Corrected params
         }) + "\nquit\n"
         
         self._run_server_for_input(server, command)
         output = self.mock_stdout.getvalue()
-        response = json.loads(output.strip())
+        # It's possible multiple JSON objects are printed if server logs JSON. Find the relevant one.
+        actual_response_json = None
+        for line in output.strip().splitlines():
+            try:
+                parsed_line = json.loads(line)
+                if parsed_line.get("tool_name") == "add_document_to_store":
+                    actual_response_json = parsed_line
+                    break
+            except json.JSONDecodeError:
+                continue
+        self.assertIsNotNone(actual_response_json, "No valid JSON response found for add_document_to_store")
+
+        self.assertEqual(actual_response_json["status"], "success")
+        self.assertEqual(actual_response_json["result"]["message"], "Document added successfully.")
+        self.assertEqual(actual_response_json["result"]["derived_title"], expected_derived_title) # Check derived_title
+        self.assertIn("document_id", actual_response_json["result"])
+        self.assertEqual(len(server.document_manager.list_documents()), initial_doc_count + 1)
         
-        self.assertEqual(response["status"], "success")
-        self.assertEqual(response["tool_name"], "add_document_to_store")
-        self.assertEqual(response["result"]["message"], "Document added successfully.")
-        self.assertEqual(response["result"]["title"], title)
-        self.assertIn("document_id", response["result"])
-        self.assertEqual(len(server.document_store), initial_doc_count + 1)
-        
-        # Verify by searching (optional, but good)
-        new_doc_id = response["result"]["document_id"]
-        found_doc = next((doc for doc in server.document_store if doc["id"] == new_doc_id), None)
+        new_doc_id = actual_response_json["result"]["document_id"]
+        found_doc = server.document_manager.get_document(new_doc_id)
         self.assertIsNotNone(found_doc)
-        self.assertEqual(found_doc["title"], title)
+        self.assertEqual(found_doc["title"], expected_derived_title)
+        self.assertEqual(found_doc["abstract"], doc_text) # Abstract is the full document_text
 
     def test_stdio_add_document_missing_params(self):
         server = self._start_stdio_server()
-        initial_doc_count = len(server.document_store)
+        initial_doc_count = len(server.document_manager.list_documents())
         
-        # Missing title
-        command_missing_title = json.dumps({
+        # Missing document_text (primary required field)
+        command_missing_text = json.dumps({
             "command": "execute_tool", "tool_name": "add_document_to_store",
-            "tool_params": {"abstract": "Some abstract", "keywords": "test"}
+            "tool_params": {"keywords": "test"} # Missing document_text
         }) + "\nquit\n"
-        self._run_server_for_input(server, command_missing_title)
-        output_missing_title = self.mock_stdout.getvalue().strip()
-        response_missing_title = json.loads(output_missing_title)
-        self.assertEqual(response_missing_title["status"], "success") # Callback error is wrapped
-        self.assertIn("error", response_missing_title["result"])
-        self.assertIn("Missing required parameters", response_missing_title["result"]["error"])
-        self.assertEqual(len(server.document_store), initial_doc_count) # No document added
+        self._run_server_for_input(server, command_missing_text)
+        output_missing_text = self.mock_stdout.getvalue().strip()
+        # Find relevant JSON output
+        actual_response_json = None
+        for line in output_missing_text.strip().splitlines():
+            try:
+                parsed_line = json.loads(line)
+                if parsed_line.get("tool_name") == "add_document_to_store": # or check for status error
+                    actual_response_json = parsed_line
+                    break
+            except json.JSONDecodeError:
+                continue
+        self.assertIsNotNone(actual_response_json, "No valid JSON response for missing params test")
 
-        # Reset stdout for next capture
-        self.mock_stdout = io.StringIO() 
-        sys.stdout = self.mock_stdout
-        
-        # Missing abstract
-        command_missing_abstract = json.dumps({
-            "command": "execute_tool", "tool_name": "add_document_to_store",
-            "tool_params": {"title": "Some Title", "keywords": "test"}
-        }) + "\nquit\n"
-        self._run_server_for_input(server, command_missing_abstract)
-        output_missing_abstract = self.mock_stdout.getvalue().strip()
-        response_missing_abstract = json.loads(output_missing_abstract)
-        self.assertEqual(response_missing_abstract["status"], "success") # Callback error is wrapped
-        self.assertIn("error", response_missing_abstract["result"])
-        self.assertIn("Missing required parameters", response_missing_abstract["result"]["error"])
-        self.assertEqual(len(server.document_store), initial_doc_count) # Still no document added
+        # The tool callback itself returns the error within the "result" field
+        self.assertEqual(actual_response_json["status"], "success") 
+        self.assertIn("error", actual_response_json["result"])
+        self.assertIn("Missing required parameter: document_text", actual_response_json["result"]["error"])
+        self.assertEqual(len(server.document_manager.list_documents()), initial_doc_count)
 
     # --- SSE Tests ---
     def test_sse_capabilities_on_connect(self):
@@ -271,18 +285,20 @@ class TestMcpServer(unittest.TestCase):
             event = self._read_sse_event(response, timeout=5.0)
             self.assertIsNotNone(event)
             capabilities = json.loads(event['data'])
-            
             tools_by_name_sse = {t["name"]: t for t in capabilities['tools']}
             self.assertIn("add_document_to_store", tools_by_name_sse)
-            self.assertEqual(tools_by_name_sse["add_document_to_store"]["description"], "Adds a new document to the in-memory document store. Requires title, abstract, and keywords.")
+            # Corrected assertion for description and schema
+            self.assertEqual(tools_by_name_sse["add_document_to_store"]["description"], "Adds a new document to the in-memory store from raw text. A title is auto-generated. Keywords are optional.")
+            self.assertIn("document_text", tools_by_name_sse["add_document_to_store"]["schema"]["required"])
+
 
     def test_sse_add_document_success(self):
         server = self._start_sse_server()
-        initial_doc_count = len(server.document_store)
+        initial_doc_count = len(server.document_manager.list_documents())
         
-        title = "Test Doc Title SSE"
-        abstract = "Abstract for SSE test."
+        doc_text = "Test Doc Title SSE\nAbstract for SSE test." # Title on first line
         keywords_str = "test,sse,new"
+        expected_derived_title = "Test Doc Title SSE"
         
         with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as listener_conn:
             listener_conn.request("GET", SSE_PATH)
@@ -292,7 +308,7 @@ class TestMcpServer(unittest.TestCase):
 
             command_body = json.dumps({
                 "command": "execute_tool", "tool_name": "add_document_to_store",
-                "tool_params": {"title": title, "abstract": abstract, "keywords": keywords_str}
+                "tool_params": {"document_text": doc_text, "keywords": keywords_str} # Corrected params
             })
             headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
             with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
@@ -311,13 +327,13 @@ class TestMcpServer(unittest.TestCase):
             self.assertEqual(data['status'], 'success')
             self.assertEqual(data['tool_name'], 'add_document_to_store')
             self.assertEqual(data['result']['message'], "Document added successfully.")
-            self.assertEqual(data['result']['title'], title)
+            self.assertEqual(data['result']['derived_title'], expected_derived_title) # Check derived_title
             self.assertIn('document_id', data['result'])
-            self.assertEqual(len(server.document_store), initial_doc_count + 1)
+            self.assertEqual(len(server.document_manager.list_documents()), initial_doc_count + 1)
 
     def test_sse_add_document_missing_params(self):
         server = self._start_sse_server()
-        initial_doc_count = len(server.document_store)
+        initial_doc_count = len(server.document_manager.list_documents())
 
         with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as listener_conn:
             listener_conn.request("GET", SSE_PATH)
@@ -325,14 +341,14 @@ class TestMcpServer(unittest.TestCase):
             self.assertEqual(listener_response.status, 200)
             self._read_sse_event(listener_response, timeout=5.0) # Capabilities
 
-            # Missing title
-            command_body_no_title = json.dumps({
+            # Missing document_text
+            command_body_no_text = json.dumps({
                 "command": "execute_tool", "tool_name": "add_document_to_store",
-                "tool_params": {"abstract": "Some abstract", "keywords": "test"}
+                "tool_params": {"keywords": "test"} # Missing document_text
             })
-            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body_no_title))}
+            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body_no_text))}
             with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
-                cmd_conn.request("POST", COMMAND_PATH, body=command_body_no_title, headers=headers)
+                cmd_conn.request("POST", COMMAND_PATH, body=command_body_no_text, headers=headers)
                 post_response = cmd_conn.getresponse()
                 self.assertEqual(post_response.status, 202)
 
@@ -340,14 +356,13 @@ class TestMcpServer(unittest.TestCase):
             if error_event and error_event['event'] == 'keepalive':
                 error_event = self._read_sse_event(listener_response, timeout=5.0)
             
-            self.assertIsNotNone(error_event, "Listener did not receive tool_result/error for missing title.")
-            self.assertEqual(error_event['event'], 'tool_result') # Callback error is wrapped in result
-            data_no_title = json.loads(error_event['data'])
-            self.assertEqual(data_no_title['status'], 'success') # Tool execution itself succeeded
-            self.assertIn('error', data_no_title['result'])
-            self.assertIn("Missing required parameters", data_no_title['result']['error'])
-            self.assertEqual(len(server.document_store), initial_doc_count)
-
+            self.assertIsNotNone(error_event, "Listener did not receive tool_result/error for missing document_text.")
+            self.assertEqual(error_event['event'], 'tool_result') 
+            data_no_text = json.loads(error_event['data'])
+            self.assertEqual(data_no_text['status'], 'success') 
+            self.assertIn('error', data_no_text['result'])
+            self.assertIn("Missing required parameter: document_text", data_no_text['result']['error'])
+            self.assertEqual(len(server.document_manager.list_documents()), initial_doc_count)
 
     # --- Keep other existing tests ---
     # (STDIO prompt tests, SSE prompt tests, Web interface tests, other STDIO/SSE general tests)

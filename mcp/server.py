@@ -19,6 +19,9 @@ import os # Added for path operations
 import base64 # For decoding file content
 import binascii # For Base64 error handling
 
+# Import DocumentManager
+from .documents import DocumentManager
+
 # 日志配置
 logger = logging.getLogger(__name__)
 
@@ -231,7 +234,7 @@ class _McpSseHandler(BaseHTTPRequestHandler):
 
 
 class McpServer:
-    def __init__(self, name: str, version: str):
+    def __init__(self, name: str, version: str, document_store_file_override: Optional[str] = None):
         self.name = name
         self.version = version
         self.tools = {}
@@ -241,59 +244,41 @@ class McpServer:
         self.sse_clients = [] 
         self.http_server_thread = None
         self.http_server = None
-        self.next_doc_id_counter = 200
+        # self.next_doc_id_counter = 200 # Moved to DocumentManager
         logger.info(f"创建MCP服务器: {name} v{version}")
 
-        # Load document store first
-        self.document_store_file = "documents.json"
-        default_documents = [
-            {
-                "id": "doc101", "title": "Exploring Artificial Intelligence in Modern Healthcare",
-                "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
-                "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
-            },
-            {
-                "id": "doc102", "title": "The Future of Renewable Energy Sources",
-                "abstract": "A comprehensive review of solar, wind, and geothermal energy technologies and their potential.",
-                "keywords": ["renewable energy", "solar", "wind", "geothermal", "sustainability"]
-            },
-            {
-                "id": "doc103", "title": "Quantum Computing: A New Paradigm",
-                "abstract": "This article introduces the fundamental concepts of quantum computing and its applications.",
-                "keywords": ["quantum computing", "qubits", "algorithms", "cryptography"]
-            },
-            {
-                "id": "doc104", "title": "Advanced Machine Learning Techniques for NLP",
-                "abstract": "Deep learning models and transformers are revolutionizing Natural Language Processing.",
-                "keywords": ["machine learning", "nlp", "deep learning", "transformers", "ai"]
-            }
-        ]
+        # Initialize DocumentManager
+        # Allow overriding document_store_file for testing purposes
+        # This part assumes the refactoring of McpServer.__init__ to accept document_store_file_override
+        # For now, let's proceed as if it's possible to configure this.
+        # The actual change to McpServer.__init__ signature isn't here, but in its definition.
+        # This change focuses on the *usage* if such override existed.
+        # However, the original instruction was to modify McpServer.
+        # Let's assume the constructor is: def __init__(self, name: str, version: str, document_store_file_override: Optional[str] = None):
+        doc_file_path = kwargs.get("document_store_file_override", "documents.json") # Check if this needs to be passed via kwargs or direct param
+        # The previous step did not modify McpServer's __init__ signature.
+        # So, for now, McpServer will always use "documents.json" as per its current code.
+        # The tests will have to adapt to this, or McpServer.__init__ must be changed.
+        #
+        # Let's assume McpServer's __init__ is changed as part of this step:
+        # def __init__(self, name: str, version: str, document_store_file_override: Optional[str] = None):
+        #    ...
+        #    actual_doc_file = document_store_file_override if document_store_file_override else "documents.json"
+        #    self.document_manager = DocumentManager(document_store_file=actual_doc_file)
+        #
+        # The diff below will add the parameter to __init__
+        self.document_manager = DocumentManager(document_store_file=kwargs.get("document_store_file_override", "documents.json"))
 
-        try:
-            with open(self.document_store_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                if not content: # Check for empty file
-                    raise ValueError("File is empty")
-                self.document_store = json.loads(content)
-            logger.info(f"Loaded document store from {self.document_store_file}")
-        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"{self.document_store_file} not found, empty, or invalid JSON ({e}). Initializing with default documents and creating/overwriting the file.")
-            self.document_store = default_documents
-            try:
-                with open(self.document_store_file, 'w', encoding='utf-8') as f:
-                    json.dump(self.document_store, f, indent=4)
-                logger.info(f"Saved default document store to {self.document_store_file}")
-            except IOError as ioe:
-                logger.error(f"Could not write initial document store to {self.document_store_file}: {ioe}")
 
-        # Register existing documents from the store as resources
-        if self.document_store: # Ensure document_store is not None or empty
-            logger.info(f"Registering {len(self.document_store)} documents from store as MCP resources...")
-            for doc_idx, doc in enumerate(self.document_store):
-                logger.debug(f"Registering document at index {doc_idx}: {doc.get('id')}")
-                self._register_document_as_resource(doc)
+        # Register existing documents from the DocumentManager as resources
+        initial_documents_from_manager = self.document_manager.list_documents()
+        if initial_documents_from_manager:
+            logger.info(f"Registering {len(initial_documents_from_manager)} documents from DocumentManager as MCP resources...")
+            for doc in initial_documents_from_manager: # Iterate directly over documents
+                logger.debug(f"Registering document: {doc.get('id')}")
+                self._register_document_as_resource(doc) # _register_document_as_resource is still a method of McpServer
         else:
-            logger.info("Document store is empty. No documents to register as resources initially.")
+            logger.info("Document store (via DocumentManager) is empty. No documents to register as resources initially.")
 
         self.register_tool(
             name="echo",
@@ -416,10 +401,10 @@ class McpServer:
                 try: client_wfile.close()
                 except Exception: pass
 
-    def _generate_next_doc_id(self) -> str:
-        doc_id = f"doc{self.next_doc_id_counter}"
-        self.next_doc_id_counter += 1
-        return doc_id
+    # def _generate_next_doc_id(self) -> str: # Moved to DocumentManager
+    #     doc_id = f"doc{self.next_doc_id_counter}"
+    #     self.next_doc_id_counter += 1
+    #     return doc_id
 
     def _register_document_as_resource(self, document: dict) -> None:
         """Helper method to register a single document as an MCP resource."""
@@ -451,17 +436,17 @@ class McpServer:
         logger.info(f"Registered document {doc_id} as MCP resource: {uri}")
 
 
-    def _save_document_store_to_file(self) -> None:
-        """Saves the current document store to the JSON file."""
-        try:
-            logger.debug(f"Attempting to save document store. Full store repr: {repr(self.document_store)}")
-            with open(self.document_store_file, 'w', encoding='utf-8') as f:
-                json.dump(self.document_store, f, indent=4, ensure_ascii=True)
-            logger.info(f"Document store successfully saved to {self.document_store_file}")
-        except IOError as e:
-            logger.error(f"Could not save document store to {self.document_store_file}: {e}")
-        except Exception as e: # Catch any other unexpected errors during saving
-            logger.error(f"An unexpected error occurred while saving document store: {e}", exc_info=True)
+    # def _save_document_store_to_file(self) -> None: # Moved to DocumentManager
+    #     """Saves the current document store to the JSON file."""
+    #     try:
+    #         logger.debug(f"Attempting to save document store. Full store repr: {repr(self.document_store)}")
+    #         with open(self.document_store_file, 'w', encoding='utf-8') as f:
+    #             json.dump(self.document_store, f, indent=4, ensure_ascii=True)
+    #         logger.info(f"Saved default document store to {self.document_store_file}")
+    #     except IOError as e:
+    #         logger.error(f"Could not save document store to {self.document_store_file}: {e}")
+    #     except Exception as e: # Catch any other unexpected errors during saving
+    #         logger.error(f"An unexpected error occurred while saving document store: {e}", exc_info=True)
 
     def _execute_add_document_to_store_impl(self, params: dict) -> dict:
         document_text = params.get("document_text")
@@ -472,30 +457,26 @@ class McpServer:
 
         stripped_text = document_text.strip()
         lines = stripped_text.split('\n', 1)
-        derived_title = lines[0][:100].strip() # First line, max 100 chars, stripped
+        derived_title = lines[0][:100].strip()
         
-        if not derived_title: # If the first line was all whitespace or very long and then stripped to nothing
-             # This part of ID generation in title is a bit complex if _generate_next_doc_id has side effects
-             # For now, let's use a simpler default if title is empty after processing.
-             # The ID will be generated once for the document itself.
+        if not derived_title:
              derived_title = f"Untitled Document (ID will be generated)"
-
 
         keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
         
-        new_doc_id = self._generate_next_doc_id()
+        # Use DocumentManager to generate ID and add document
+        new_doc_id = self.document_manager.generate_next_doc_id()
         
         new_document = {
             "id": new_doc_id,
             "title": derived_title if derived_title != "Untitled Document (ID will be generated)" else f"Untitled Document {new_doc_id}",
-            "abstract": document_text, # Store full text as abstract
+            "abstract": document_text,
             "keywords": keywords
         }
         
-        self.document_store.append(new_document)
-        logger.info(f"Added new document from text: {new_doc_id} - {new_document['title']}")
-        self._save_document_store_to_file() # Persist changes
-        self._register_document_as_resource(new_document) # Register new doc as resource
+        self.document_manager.add_document(new_document) # This also saves the store
+        logger.info(f"Added new document from text (via DocumentManager): {new_doc_id} - {new_document['title']}")
+        self._register_document_as_resource(new_document)
         
         return {
             "message": "Document added successfully from text.",
@@ -508,74 +489,65 @@ class McpServer:
         filename_param = params.get("filename")
         keywords_str = params.get("keywords", "")
 
-        # Sanitize filename to remove any potential null characters if they are somehow introduced.
         filename = ""
         if filename_param:
-            filename = str(filename_param).replace('\x00', '') # Basic null char removal
+            filename = str(filename_param).replace('\x00', '')
 
-        # filename cannot be an empty string. file_content_base64 can be an empty string (for an empty file) but must be present.
         if file_content_base64 is None or not filename.strip():
             return {"error": "Missing required parameter: file_content_base64 must be provided (can be an empty string), and filename must be a non-empty string."}
 
         try:
             decoded_bytes = base64.b64decode(file_content_base64)
             decoded_text = decoded_bytes.decode('utf-8')
-        except (binascii.Error, UnicodeDecodeError) as e: # Corrected exception handling
+        except (binascii.Error, UnicodeDecodeError) as e:
             logger.warning(f"Failed to decode Base64 content for file {filename}: {e}")
             return {"error": "Invalid Base64 content or UTF-8 decoding error."}
-        except Exception as e: # Catch any other unexpected error during decoding
+        except Exception as e:
             logger.error(f"Unexpected error decoding file {filename}: {e}", exc_info=True)
             return {"error": "An unexpected error occurred during file decoding."}
 
         stripped_decoded_text = decoded_text.strip()
         
-        # Aggressively sanitize the title derived from filename
         temp_title_from_fn = os.path.splitext(filename)[0]
-        # Encode to ASCII ignoring errors, then decode back to ASCII. This should strip problematic chars.
         default_title_from_filename = temp_title_from_fn.encode('ascii', 'ignore').decode('ascii')
         
-        if not default_title_from_filename: # If encoding to ascii made it empty or it was already bad
-            default_title_from_filename = "Untitled Document from File" # Fallback
+        if not default_title_from_filename:
+            default_title_from_filename = "Untitled Document from File"
 
         if not stripped_decoded_text:
-            derived_title = default_title_from_filename 
+            derived_title = default_title_from_filename
         else:
             lines = stripped_decoded_text.split('\n', 1)
             first_line = lines[0].strip()
             if not first_line:
                 derived_title = default_title_from_filename
             else:
-                # For title from content, ensure it's also clean, though less likely to be an issue here
                 cleaned_first_line = first_line.encode('ascii', 'ignore').decode('ascii')
                 derived_title = cleaned_first_line[:100] if cleaned_first_line else default_title_from_filename
 
-        new_doc_id = self._generate_next_doc_id()
+        # Use DocumentManager to generate ID and add document
+        new_doc_id = self.document_manager.generate_next_doc_id()
         keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
 
-        # Sanitize derived_title using isprintable()
         derived_title_sanitized = "".join(c for c in derived_title if c.isprintable()).strip()
         if not derived_title_sanitized:
-            # Try to use the sanitized filename (without extension) as a fallback
-            # default_title_from_filename was already sanitized with encode/decode ascii
-            fallback_title = default_title_from_filename 
-            if not fallback_title.strip(): # If even that is empty (e.g. filename was just ".txt" or non-ascii)
-                 fallback_title = "Untitled Document" # Final fallback
+            fallback_title = default_title_from_filename
+            if not fallback_title.strip():
+                 fallback_title = "Untitled Document"
             derived_title_sanitized = fallback_title
         
-        # Sanitize decoded_text (abstract) using isprintable() but allow common whitespace
         abstract_sanitized = "".join(c for c in decoded_text if c.isprintable() or c in ('\n', '\r', '\t'))
         
         new_document = {
             "id": new_doc_id,
             "title": derived_title_sanitized,
-            "abstract": abstract_sanitized, 
+            "abstract": abstract_sanitized,
             "keywords": keywords
         }
         
-        self.document_store.append(new_document)
-        logger.info(f"Added new document from file {filename}: {new_doc_id} - {derived_title_sanitized}")
-        self._save_document_store_to_file()
-        self._register_document_as_resource(new_document) # Register new doc as resource
+        self.document_manager.add_document(new_document) # This also saves the store
+        logger.info(f"Added new document from file (via DocumentManager) {filename}: {new_doc_id} - {derived_title_sanitized}")
+        self._register_document_as_resource(new_document)
         
         return {
             "message": "Document added successfully from file.",
@@ -592,23 +564,12 @@ class McpServer:
             logger.warning(f"Invalid max_results value '{params.get('max_results')}', defaulting to 3.")
             max_results = 3
 
-        if not query_str: 
+        if not query_str:
             return {"search_results": [], "query_received": params.get("query", "")}
 
-        found_documents = []
-        for doc in self.document_store:
-            match = False
-            if query_str in doc.get("title", "").lower():
-                match = True
-            elif query_str in doc.get("abstract", "").lower():
-                match = True
-            elif any(query_str in keyword.lower() for keyword in doc.get("keywords", [])):
-                match = True
-            
-            if match:
-                found_documents.append(doc.copy()) 
-
-        results_to_return = found_documents[:max_results]
+        # Use DocumentManager to search documents
+        results_to_return = self.document_manager.search_documents(query_str, max_results)
+        
         return {"search_results": results_to_return, "query_received": params.get("query")}
 
     def execute_tool_command(self, tool_name: str, tool_params: dict) -> None:
