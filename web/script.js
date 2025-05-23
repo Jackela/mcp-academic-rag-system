@@ -78,10 +78,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 displayDiv = document.getElementById('add-doc-result-display');
                 if (displayDiv) {
                     if (parsedData.result && parsedData.result.message) {
-                        displayDiv.textContent = `Success: ${parsedData.result.message} (ID: ${parsedData.result.document_id}, Title: ${parsedData.result.title})`;
+                        displayDiv.textContent = `Success: ${parsedData.result.message} (ID: ${parsedData.result.document_id}, Title: '${parsedData.result.derived_title}')`;
                         // Clear input fields on success
-                        document.getElementById('add-doc-title-input').value = '';
-                        document.getElementById('add-doc-abstract-input').value = '';
+                        document.getElementById('add-doc-text-input').value = ''; // Updated ID
                         document.getElementById('add-doc-keywords-input').value = '';
                     } else if (parsedData.result && parsedData.result.error) {
                         displayDiv.textContent = `Error: ${parsedData.result.error}`;
@@ -192,18 +191,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 toolHtml += `
                 <div class="tool-interaction">
                     <div>
-                        <label for="add-doc-title-input">Title:</label>
-                        <input type="text" id="add-doc-title-input" placeholder="Enter document title" style="width: 98%;">
+                        <label for="add-doc-text-input">Document Text:</label>
+                        <textarea id="add-doc-text-input" placeholder="Enter full document text here. First line will be used as title." rows="5" style="width: 98%;"></textarea>
                     </div>
                     <div style="margin-top: 5px;">
-                        <label for="add-doc-abstract-input">Abstract:</label>
-                        <textarea id="add-doc-abstract-input" placeholder="Enter document abstract" rows="3" style="width: 98%;"></textarea>
-                    </div>
-                    <div style="margin-top: 5px;">
-                        <label for="add-doc-keywords-input">Keywords (comma-separated):</label>
+                        <label for="add-doc-keywords-input">Keywords (comma-separated, optional):</label>
                         <input type="text" id="add-doc-keywords-input" placeholder="e.g., ai, healthcare, data" style="width: 98%;">
                     </div>
-                    <button onclick="runAddDocumentTool()" style="margin-top: 10px;">Add Document to Store</button>
+                    <button onclick="runAddDocumentTool()" style="margin-top: 10px;">Add Document from Text</button>
                     <div id="add-doc-result-display" class="result-display"></div>
                 </div>
                 `;
@@ -359,27 +354,23 @@ function runDocumentSearch() {
 }
 
 function runAddDocumentTool() {
-    const titleInput = document.getElementById('add-doc-title-input');
-    const abstractInput = document.getElementById('add-doc-abstract-input');
+    const textInput = document.getElementById('add-doc-text-input'); // Updated ID
     const keywordsInput = document.getElementById('add-doc-keywords-input');
     const resultDisplay = document.getElementById('add-doc-result-display');
 
-    const title = titleInput ? titleInput.value : '';
-    const abstract = abstractInput ? abstractInput.value : '';
+    const document_text = textInput ? textInput.value : ''; // Updated variable name
     const keywords = keywordsInput ? keywordsInput.value : '';
 
-    if (!title.trim() || !abstract.trim()) {
-        if(resultDisplay) resultDisplay.textContent = 'Error: Title and Abstract are required.';
+    if (!document_text.trim()) { // Updated validation
+        if(resultDisplay) resultDisplay.textContent = 'Error: Document Text is required.';
         return;
     }
-    // Keywords are optional on client-side, server will handle empty string if needed
 
     const command = {
         command: "execute_tool",
         tool_name: "add_document_to_store",
         tool_params: {
-            title: title,
-            abstract: abstract,
+            document_text: document_text, // Use new parameter
             keywords: keywords 
         }
     };

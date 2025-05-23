@@ -55,20 +55,18 @@ Currently implemented tools (some are placeholders):
         (Note: The actual results will depend on the query and the content of the in-memory document store.)
 
 -   **`add_document_to_store`**
-    *   **Description:** Adds a new document to the in-memory document store. Requires title, abstract, and a comma-separated string of keywords.
+    *   **Description:** Adds a new document to the in-memory store from its raw text content. A title is automatically derived from the first line of the text. Keywords are optional.
     *   **MCP Command Parameters (`tool_params`):**
-        *   `title` (string, required): The title of the document.
-        *   `abstract` (string, required): The abstract or a brief summary of the document.
-        *   `keywords` (string, required): Comma-separated list of keywords.
+        *   `document_text` (string, required): The full text content of the document.
+        *   `keywords` (string, optional): Comma-separated list of keywords.
     *   **Example MCP Command:**
         ```json
         {
             "command": "execute_tool",
             "tool_name": "add_document_to_store",
             "tool_params": {
-                "title": "New Insights into Quantum Entanglement",
-                "abstract": "This paper details novel experiments and their implications for quantum theory.",
-                "keywords": "quantum, entanglement, physics, research"
+                "document_text": "First line as derived title.\nThis is the rest of the document content, which will be stored as the abstract.",
+                "keywords": "text processing, auto-title, mcp"
             }
         }
         ```
@@ -76,15 +74,15 @@ Currently implemented tools (some are placeholders):
         Success:
         ```json
         {
-            "message": "Document added successfully.",
-            "document_id": "doc200", // Example ID, will increment
-            "title": "New Insights into Quantum Entanglement"
+            "message": "Document added successfully from text.",
+            "document_id": "doc201", // Example ID
+            "derived_title": "First line as derived title."
         }
         ```
-        Error (e.g., missing parameters):
+        Error (e.g., empty text):
         ```json
         {
-            "error": "Missing required parameters: title and abstract are required."
+            "error": "Missing required parameter: document_text cannot be empty."
         }
         ```
 
@@ -163,7 +161,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
 - [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, and add_document_to_store)
-- [/] 高级RAG功能增强 (document_search tool searches in-memory store; new documents can be added to store via tool)
+- [/] 高级RAG功能增强 (document_search searches in-memory store; documents added from raw text with auto-derived title)
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 

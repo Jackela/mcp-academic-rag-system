@@ -239,32 +239,27 @@ class McpServer:
         self.sse_clients = [] 
         self.http_server_thread = None
         self.http_server = None
-        self.next_doc_id_counter = 200 # Initialize counter for new documents
+        self.next_doc_id_counter = 200 
         logger.info(f"创建MCP服务器: {name} v{version}")
 
-        # Initialize document store
         self.document_store = [
             {
-                "id": "doc101",
-                "title": "Exploring Artificial Intelligence in Modern Healthcare",
+                "id": "doc101", "title": "Exploring Artificial Intelligence in Modern Healthcare",
                 "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
                 "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
             },
             {
-                "id": "doc102",
-                "title": "The Future of Renewable Energy Sources",
+                "id": "doc102", "title": "The Future of Renewable Energy Sources",
                 "abstract": "A comprehensive review of solar, wind, and geothermal energy technologies and their potential.",
                 "keywords": ["renewable energy", "solar", "wind", "geothermal", "sustainability"]
             },
             {
-                "id": "doc103",
-                "title": "Quantum Computing: A New Paradigm",
+                "id": "doc103", "title": "Quantum Computing: A New Paradigm",
                 "abstract": "This article introduces the fundamental concepts of quantum computing and its applications.",
                 "keywords": ["quantum computing", "qubits", "algorithms", "cryptography"]
             },
             {
-                "id": "doc104",
-                "title": "Advanced Machine Learning Techniques for NLP",
+                "id": "doc104", "title": "Advanced Machine Learning Techniques for NLP",
                 "abstract": "Deep learning models and transformers are revolutionizing Natural Language Processing.",
                 "keywords": ["machine learning", "nlp", "deep learning", "transformers", "ai"]
             }
@@ -291,15 +286,14 @@ class McpServer:
         )
         self.register_tool(
             name="add_document_to_store",
-            description="Adds a new document to the in-memory document store. Requires title, abstract, and keywords.",
+            description="Adds a new document to the in-memory store from raw text. A title is auto-generated. Keywords are optional.",
             schema={
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "description": "The title of the document."},
-                    "abstract": {"type": "string", "description": "The abstract or a brief summary of the document."},
-                    "keywords": {"type": "string", "description": "Comma-separated list of keywords."}
+                    "document_text": {"type": "string", "description": "The full text content of the document."},
+                    "keywords": {"type": "string", "description": "Optional comma-separated list of keywords."}
                 },
-                "required": ["title", "abstract", "keywords"]
+                "required": ["document_text"]
             },
             callback=self._execute_add_document_to_store_impl
         )
@@ -375,12 +369,22 @@ class McpServer:
         return doc_id
 
     def _execute_add_document_to_store_impl(self, params: dict) -> dict:
-        title = params.get("title")
-        abstract = params.get("abstract")
-        keywords_str = params.get("keywords", "") # Ensure keywords_str is always a string
+        document_text = params.get("document_text")
+        keywords_str = params.get("keywords", "")
 
-        if not title or not title.strip() or not abstract or not abstract.strip():
-            return {"error": "Missing required parameters: title and abstract are required."}
+        if not document_text or not document_text.strip():
+            return {"error": "Missing required parameter: document_text cannot be empty."}
+
+        stripped_text = document_text.strip()
+        lines = stripped_text.split('\n', 1)
+        derived_title = lines[0][:100].strip() # First line, max 100 chars, stripped
+        
+        if not derived_title: # If the first line was all whitespace or very long and then stripped to nothing
+             # This part of ID generation in title is a bit complex if _generate_next_doc_id has side effects
+             # For now, let's use a simpler default if title is empty after processing.
+             # The ID will be generated once for the document itself.
+             derived_title = f"Untitled Document (ID will be generated)"
+
 
         keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
         
@@ -388,18 +392,18 @@ class McpServer:
         
         new_document = {
             "id": new_doc_id,
-            "title": title,
-            "abstract": abstract,
+            "title": derived_title if derived_title != "Untitled Document (ID will be generated)" else f"Untitled Document {new_doc_id}",
+            "abstract": document_text, # Store full text as abstract
             "keywords": keywords
         }
         
         self.document_store.append(new_document)
-        logger.info(f"Added new document to store: {new_doc_id} - {title}")
+        logger.info(f"Added new document from text: {new_doc_id} - {new_document['title']}")
         
         return {
-            "message": "Document added successfully.",
+            "message": "Document added successfully from text.",
             "document_id": new_doc_id,
-            "title": title
+            "derived_title": new_document['title']
         }
 
     def _execute_document_search_impl(self, params: dict) -> dict:
@@ -410,7 +414,7 @@ class McpServer:
             logger.warning(f"Invalid max_results value '{params.get('max_results')}', defaulting to 3.")
             max_results = 3
 
-        if not query_str: # Return empty results if query is empty, not an error from callback.
+        if not query_str: 
             return {"search_results": [], "query_received": params.get("query", "")}
 
         found_documents = []
@@ -675,30 +679,19 @@ class McpServer:
         self.sse_clients.clear()
         logger.info("McpServer stopped.")
 
-# This function is no longer used as a direct callback for document_search tool
-# It's replaced by _execute_document_search_impl method in McpServer.
-# It can be removed if not used elsewhere, or kept for reference.
-# For this task, we will remove it to avoid confusion.
-# def _execute_document_search(params: dict) -> dict:
-#     query = params.get("query")
-#     max_results_str = params.get("max_results", "3")
-#     try: max_results = int(max_results_str)
-#     except ValueError: max_results = 3; logger.warning(f"Invalid max_results '{max_results_str}', using 3.")
-#     if not query or not query.strip(): return {"error": "Missing or empty query parameter"}
-#     results = [{"id": f"doc_{i}", "title": f"Dummy Document {i} about '{query}'", 
-#                 "snippet": f"Snippet for doc {i} on '{query}'.", "score": round(1.0/i, 2)} 
-#                for i in range(1, max_results + 1)]
-#     return {"search_results": results, "query_received": query}
+# Global level (or static method if preferred and class structure allows easily)
+def _execute_document_search(params: dict) -> dict: # This is the old one, now unused.
+    query = params.get("query")
+    max_results_str = params.get("max_results", "3")
+    try: max_results = int(max_results_str)
+    except ValueError: max_results = 3; logger.warning(f"Invalid max_results '{max_results_str}', using 3.")
+    if not query or not query.strip(): return {"error": "Missing or empty query parameter"} # Should be handled by schema or new logic
+    results = [{"id": f"doc_{i}", "title": f"Dummy Document {i} about '{query}'", 
+                "snippet": f"Snippet for doc {i} on '{query}'.", "score": round(1.0/i, 2)} 
+               for i in range(1, max_results + 1)]
+    return {"search_results": results, "query_received": query}
 
 if __name__ == "__main__":
-    # Note: _execute_document_search would need to be defined if McpServer still used it directly
-    # For the refactored version, McpServer has its own _execute_document_search_impl method.
-    def _execute_document_search(params: dict) -> dict: # Re-define for main if needed, or ensure McpServer uses its method
-        # This is a placeholder if the global function is still referenced by an old registration in testing.
-        # The real logic is now in McpServer._execute_document_search_impl
-        logger.warning("_execute_document_search global fallback called, should use McpServer method.")
-        return {"error": "Global _execute_document_search called, not the class method."}
-
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     server = McpServer("example-server", "0.1.0")
     server_mode = "sse" 
@@ -714,5 +707,3 @@ if __name__ == "__main__":
     else:
         server.start(transport_type="stdio")
     logger.info("McpServer example finished.")
-
-[end of mcp/server.py]
