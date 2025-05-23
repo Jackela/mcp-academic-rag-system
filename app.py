@@ -11,6 +11,7 @@ import sys
 from typing import Optional
 
 # 配置日志
+from mcp.server import McpServer # Added import
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,14 +38,12 @@ def init_mcp_server(transport_type: str, port: Optional[int] = None) -> None:
     """
     logger.info(f"初始化MCP服务器 (传输类型: {transport_type})")
     
+    server = McpServer(name="Academic RAG Server", version="0.1.0") # Instantiated McpServer
+    
     if transport_type == 'stdio':
-        logger.info("使用STDIO传输 - 功能尚未实现")
-        # TODO: 集成MCP STDIO传输
-        print("MCP服务器功能尚未实现，计划开发中...", file=sys.stderr)
+        server.start(transport_type=transport_type) # Called server.start()
     elif transport_type == 'sse':
-        logger.info(f"使用SSE传输 (端口: {port}) - 功能尚未实现")
-        # TODO: 集成MCP SSE传输
-        print("MCP服务器功能尚未实现，计划开发中...", file=sys.stderr)
+        server.start(transport_type=transport_type, port=port) # Called server.start() with port
     else:
         logger.error(f"不支持的传输类型: {transport_type}")
         sys.exit(1)
@@ -57,13 +56,41 @@ def main() -> None:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("已启用调试模式")
     
+    server_instance = McpServer(name="Academic RAG Server", version="0.1.0")
+
     try:
-        init_mcp_server(args.transport, args.port)
-    except KeyboardInterrupt:
-        logger.info("接收到中断信号，正在关闭服务器...")
+        # init_mcp_server(args.transport, args.port) # Old call
+        logger.info(f"Initializing MCP server (Transport: {args.transport}, Port: {args.port if args.transport == 'sse' else 'N/A'})")
+        
+        server_instance.start(transport_type=args.transport, port=args.port if args.transport == 'sse' else None)
+
+        if args.transport == 'sse':
+            if server_instance.running and server_instance.http_server_thread:
+                logger.info("SSE Server is running. Press Ctrl+C to stop.")
+                # Keep the main thread alive while the SSE server (daemon thread) runs.
+                while server_instance.running:
+                    try:
+                        threading.Event().wait(1) # Keep main thread alive, check every second
+                    except KeyboardInterrupt:
+                        logger.info("Keyboard interrupt received from console.")
+                        break # Exit while loop to proceed to stop
+            else:
+                logger.error("Server failed to start or did not start in SSE mode correctly.")
+        # For 'stdio', server_instance.start() is blocking and will run until 'quit' or EOF.
+        # No explicit keep-alive needed here for stdio as start() handles its own loop.
+
+    except KeyboardInterrupt: # This handles Ctrl+C for stdio mode if it's not caught by its own loop
+        logger.info("KeyboardInterrupt caught in main, ensuring server shutdown.")
     except Exception as e:
-        logger.exception(f"发生错误: {e}")
-        sys.exit(1)
+        logger.exception(f"An unexpected error occurred: {e}")
+    finally:
+        logger.info("Initiating server shutdown sequence...")
+        if server_instance: # Ensure server_instance was created
+            server_instance.stop()
+        logger.info("Server shutdown complete.")
+        sys.exit(0) # Ensure clean exit
 
 if __name__ == "__main__":
+    # Need to import threading here if not already imported for Event
+    import threading # Make sure threading is imported for app.py's main logic
     main()

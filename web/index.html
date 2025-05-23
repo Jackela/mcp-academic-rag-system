@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Server Interface</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+        h2 { color: #007bff; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px;}
+        .container { margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .item { border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; background-color: #f9f9f9; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .item-name { font-weight: bold; color: #0056b3; font-size: 1.1em; margin-bottom: 5px; }
+        .item-meta { font-size: 0.9em; color: #555; margin-bottom: 3px; }
+        .item-args { margin-left: 20px; font-size: 0.9em; color: #444; border-left: 3px solid #007bff; padding-left: 10px; margin-top:5px;}
+        .item-args div { margin-bottom: 5px; }
+        pre { background-color: #e9ecef; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; border: 1px solid #ced4da;}
+        #status-message { padding: 10px; border-radius: 5px; font-weight: bold; }
+        .status-connecting { background-color: #e7f3fe; color: #004085; border: 1px solid #b8daff; }
+        .status-connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        /* Styles for tool/prompt interaction */
+        .tool-interaction, .prompt-interaction { margin-top: 10px; padding: 10px; background-color: #e9e9e9; border-radius: 4px; }
+        .tool-interaction input[type="text"], .prompt-interaction input[type="text"] { margin-right: 5px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; min-width: 300px; }
+        .tool-interaction button, .prompt-interaction button { padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .tool-interaction button:hover, .prompt-interaction button:hover { background-color: #0056b3; }
+        .result-display { margin-top: 10px; padding: 10px; background-color: #f0f0f0; border: 1px solid #ccc; min-height: 20px; white-space: pre-wrap; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>MCP Server Interface</h1>
+
+    <div id="status-message" class="container status-connecting">Connecting to MCP Server...</div>
+
+    <div class="container">
+        <h2>Available Tools</h2>
+        <div id="tools-list">
+            <p>No tools loaded yet.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Available Resources</h2>
+        <div id="resources-list">
+            <p>No resources loaded yet.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Available Prompts</h2>
+        <div id="prompts-list">
+            <p>No prompts loaded yet.</p>
+        </div>
+    </div>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
