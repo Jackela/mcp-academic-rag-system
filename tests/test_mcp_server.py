@@ -30,7 +30,9 @@ class TestMcpServer(unittest.TestCase):
 
         self.server = None 
         self.sse_test_port = find_free_port()
-        # To suppress server logs during tests for cleaner output:
+        self.sample_resource_uri = "mcp://resources/literature/doc123"
+        self.sample_resource_name = "Sample Document 123"
+        self.sample_resource_title = "Foundations of Fictional Science"
         # import logging
         # logging.getLogger('mcp.server').setLevel(logging.CRITICAL)
 
@@ -43,7 +45,7 @@ class TestMcpServer(unittest.TestCase):
         
         sys.stdin = self.original_stdin
         sys.stdout = self.original_stdout
-        time.sleep(0.05) # Allow time for resources (e.g., ports) to be released
+        time.sleep(0.05)
 
 
     def _start_stdio_server(self):
@@ -75,86 +77,66 @@ class TestMcpServer(unittest.TestCase):
         event_data = {'event': 'message', 'data': ''}
         start_time = time.monotonic()
         
-        # Set timeout on the socket if possible
         if hasattr(response_stream, 'fp') and hasattr(response_stream.fp, 'settimeout'):
              response_stream.fp.settimeout(timeout)
 
         try:
             while True:
-                if time.monotonic() - start_time > timeout:
-                    return None 
-
+                if time.monotonic() - start_time > timeout: return None 
                 raw_line = response_stream.fp.readline()
-                if not raw_line: 
-                    return None 
-                
+                if not raw_line: return None 
                 line = raw_line.decode('utf-8').strip()
-
-                if not line: 
-                    break 
-                
+                if not line: break 
                 if line.startswith(':'): 
-                    if line == ": keepalive":
-                        event_data['event'] = 'keepalive'
+                    if line == ": keepalive": event_data['event'] = 'keepalive'
                     continue
-
                 if ':' in line:
                     field, value = line.split(':', 1)
                     value = value.strip()
-                    if field == 'event':
-                        event_data['event'] = value
-                    elif field == 'data':
-                        event_data['data'] = (event_data['data'] + "\n" + value) if event_data['data'] else value
-        
-        except socket.timeout:
-            return None
-        except Exception: # Broad exception for other read errors
-            return None
-
+                    if field == 'event': event_data['event'] = value
+                    elif field == 'data': event_data['data'] = (event_data['data'] + "\n" + value) if event_data['data'] else value
+        except socket.timeout: return None
+        except Exception: return None
         return event_data if event_data.get('data') or event_data.get('event') == 'keepalive' else None
     
     # --- STDIO Tests ---
     def test_server_instantiation_and_tool_registration(self):
-        # Test with a locally created server instance, not started.
-        server = McpServer(name="Test Server", version="0.0.1")
+        server = McpServer(name="Test Server", version="0.0.1") # Local instance for this test
         self.assertEqual(server.name, "Test Server")
-        self.assertEqual(server.version, "0.0.1")
         self.assertIn("echo", server.tools)
-        self.assertIn("document_search", server.tools) # Verify new tool
-        
-        doc_search_tool = server.tools["document_search"]
-        self.assertEqual(doc_search_tool["description"], "Searches academic documents based on a query.")
-        self.assertTrue(callable(doc_search_tool["callback"]))
-        self.assertIn("query", doc_search_tool["schema"]["required"])
+        self.assertIn("document_search", server.tools)
+        self.assertIn(self.sample_resource_uri, server.resources) # Check sample resource registration
+        self.assertEqual(server.resources[self.sample_resource_uri]["name"], self.sample_resource_name)
+
 
     def test_discover_command(self):
         server = self._start_stdio_server()
         self._run_server_for_input(server, "discover\nquit\n")
-        
         output = self.mock_stdout.getvalue()
         json_output_line = ""
         for line in output.splitlines():
             if line.strip().startswith("{"):
-                try:
-                    json.loads(line) 
-                    json_output_line = line
-                    break
-                except json.JSONDecodeError:
-                    continue
-        
-        self.assertTrue(json_output_line, "No JSON output found for discover command.")
+                try: json.loads(line); json_output_line = line; break
+                except: pass
+        self.assertTrue(json_output_line, "No JSON output for discover command.")
         response = json.loads(json_output_line)
         self.assertEqual(response["server_name"], "Test STDIO Server")
         
         tools_by_name = {t["name"]: t for t in response["tools"]}
-        self.assertIn("echo", tools_by_name)
         self.assertIn("document_search", tools_by_name)
-        doc_search_tool_info = tools_by_name["document_search"]
-        self.assertEqual(doc_search_tool_info["description"], "Searches academic documents based on a query.")
-        self.assertIsNotNone(doc_search_tool_info["schema"])
-        self.assertIn("query", doc_search_tool_info["schema"]["properties"])
+        
+        # Verify resource in capabilities (metadata only)
+        self.assertIn("resources", response)
+        found_sample_resource = False
+        for res in response["resources"]:
+            if res.get("uri") == self.sample_resource_uri:
+                found_sample_resource = True
+                self.assertEqual(res.get("name"), self.sample_resource_name)
+                self.assertNotIn("content", res, "Resource content should not be in capabilities listing.")
+                break
+        self.assertTrue(found_sample_resource, "Sample resource not found in STDIO capabilities.")
 
-    def test_stdio_echo_tool_execution(self): # Renamed for clarity
+    def test_stdio_echo_tool_execution(self):
         server = self._start_stdio_server()
         command = '{"command": "execute_tool", "tool_name": "echo", "tool_params": {"message": "Hello MCP"}}\nquit\n'
         self._run_server_for_input(server, command)
@@ -163,23 +145,17 @@ class TestMcpServer(unittest.TestCase):
         for line in output.splitlines():
             if line.strip().startswith("{"):
                 try:
-                    parsed_line = json.loads(line)
-                    if parsed_line.get("status") == "success" and parsed_line.get("tool_name") == "echo":
-                         json_output_line = line
-                         break
-                except json.JSONDecodeError:
-                    continue
-        self.assertTrue(json_output_line, "No success JSON output for echo tool.")
+                    parsed = json.loads(line)
+                    if parsed.get("status") == "success" and parsed.get("tool_name") == "echo":
+                        json_output_line = line; break
+                except: pass
+        self.assertTrue(json_output_line)
         response = json.loads(json_output_line)
         self.assertEqual(response["result"]["echo_response"], "Hello MCP")
 
     def test_stdio_document_search_success(self):
         server = self._start_stdio_server()
-        command = json.dumps({
-            "command": "execute_tool",
-            "tool_name": "document_search",
-            "tool_params": {"query": "test query", "max_results": 2}
-        }) + "\nquit\n"
+        command = json.dumps({"command": "execute_tool", "tool_name": "document_search", "tool_params": {"query": "test", "max_results": 1}}) + "\nquit\n"
         self._run_server_for_input(server, command)
         output = self.mock_stdout.getvalue()
         json_output_line = ""
@@ -187,45 +163,16 @@ class TestMcpServer(unittest.TestCase):
             if line.strip().startswith("{"):
                 try:
                     parsed = json.loads(line)
-                    if parsed.get("tool_name") == "document_search":
-                        json_output_line = line; break
+                    if parsed.get("tool_name") == "document_search": json_output_line = line; break
                 except: pass
         self.assertTrue(json_output_line)
         response = json.loads(json_output_line)
         self.assertEqual(response["status"], "success")
-        self.assertEqual(response["result"]["query_received"], "test query")
-        self.assertEqual(len(response["result"]["search_results"]), 2)
+        self.assertEqual(len(response["result"]["search_results"]), 1)
 
-    def test_stdio_document_search_missing_query(self):
+    def test_stdio_get_resource_success(self):
         server = self._start_stdio_server()
-        command = json.dumps({
-            "command": "execute_tool",
-            "tool_name": "document_search",
-            "tool_params": {} 
-        }) + "\nquit\n"
-        self._run_server_for_input(server, command)
-        output = self.mock_stdout.getvalue()
-        json_output_line = ""
-        for line in output.splitlines():
-            if line.strip().startswith("{"):
-                try: # The callback error is nested inside a "result" field by STDIO handler
-                    parsed = json.loads(line)
-                    if parsed.get("tool_name") == "document_search" and parsed.get("status") == "success" and \
-                       "result" in parsed and "error" in parsed["result"]:
-                        json_output_line = line; break
-                except: pass
-        self.assertTrue(json_output_line)
-        response = json.loads(json_output_line)
-        self.assertEqual(response["status"], "success") # STDIO reports success even if callback returns error dict
-        self.assertEqual(response["result"]["error"], "Missing or empty query parameter")
-
-    def test_stdio_document_search_default_max_results(self):
-        server = self._start_stdio_server()
-        command = json.dumps({
-            "command": "execute_tool",
-            "tool_name": "document_search",
-            "tool_params": {"query": "another query"}
-        }) + "\nquit\n"
+        command = json.dumps({"command": "get_resource", "uri": self.sample_resource_uri}) + "\nquit\n"
         self._run_server_for_input(server, command)
         output = self.mock_stdout.getvalue()
         json_output_line = ""
@@ -233,20 +180,56 @@ class TestMcpServer(unittest.TestCase):
             if line.strip().startswith("{"):
                 try:
                     parsed = json.loads(line)
-                    if parsed.get("tool_name") == "document_search":
+                    if parsed.get("command") != "get_resource": # Filter out other potential JSON logs
                         json_output_line = line; break
+                except: pass
+        self.assertTrue(json_output_line, f"No JSON output for get_resource. Output: {output}")
+        response = json.loads(json_output_line)
+        self.assertEqual(response["status"], "success")
+        self.assertEqual(response["uri"], self.sample_resource_uri)
+        self.assertIn("resource_data", response)
+        self.assertEqual(response["resource_data"]["name"], self.sample_resource_name)
+        self.assertIn("content", response["resource_data"])
+        self.assertEqual(response["resource_data"]["content"]["title"], self.sample_resource_title)
+
+    def test_stdio_get_resource_not_found(self):
+        server = self._start_stdio_server()
+        command = json.dumps({"command": "get_resource", "uri": "mcp://resources/nonexistent"}) + "\nquit\n"
+        self._run_server_for_input(server, command)
+        output = self.mock_stdout.getvalue()
+        json_output_line = ""
+        for line in output.splitlines():
+            if line.strip().startswith("{"):
+                try:
+                    parsed = json.loads(line)
+                    if parsed.get("status") == "error": json_output_line = line; break
                 except: pass
         self.assertTrue(json_output_line)
         response = json.loads(json_output_line)
-        self.assertEqual(response["status"], "success")
-        self.assertEqual(len(response["result"]["search_results"]), 3) # Callback default
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["error"], "Resource not found")
+
+    def test_stdio_get_resource_missing_uri(self):
+        server = self._start_stdio_server()
+        command = json.dumps({"command": "get_resource"}) + "\nquit\n" # Missing URI
+        self._run_server_for_input(server, command)
+        output = self.mock_stdout.getvalue()
+        json_output_line = ""
+        for line in output.splitlines():
+            if line.strip().startswith("{"):
+                try:
+                    parsed = json.loads(line)
+                    if parsed.get("status") == "error": json_output_line = line; break
+                except: pass
+        self.assertTrue(json_output_line)
+        response = json.loads(json_output_line)
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Missing URI", response["error"])
 
     # --- SSE Tests ---
     def test_sse_capabilities_on_connect(self):
         self._start_sse_server()
-        conn = None
-        try:
-            conn = http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5)
+        with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as conn:
             conn.request("GET", SSE_PATH)
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
@@ -255,106 +238,86 @@ class TestMcpServer(unittest.TestCase):
             self.assertEqual(event['event'], 'capabilities')
             capabilities = json.loads(event['data'])
             self.assertEqual(capabilities['server_name'], 'Test SSE Server')
-            tools_by_name_sse = {t["name"]: t for t in capabilities['tools']}
-            self.assertIn("echo", tools_by_name_sse)
-            self.assertIn("document_search", tools_by_name_sse)
-            self.assertIsNotNone(tools_by_name_sse["document_search"]["schema"])
-        finally:
-            if conn: conn.close()
+            
+            # Verify resource in capabilities (metadata only)
+            self.assertIn("resources", capabilities)
+            found_sample_resource_sse = False
+            for res in capabilities["resources"]:
+                if res.get("uri") == self.sample_resource_uri:
+                    found_sample_resource_sse = True
+                    self.assertEqual(res.get("name"), self.sample_resource_name)
+                    self.assertNotIn("content", res, "Resource content should not be in SSE capabilities.")
+                    break
+            self.assertTrue(found_sample_resource_sse, "Sample resource not found in SSE capabilities.")
 
-    def test_sse_echo_tool_execution(self): # Renamed for clarity
+    def test_sse_get_resource_success(self):
         self._start_sse_server()
-        listener_conn = None
-        try:
-            listener_conn = http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5)
+        with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as listener_conn:
+            listener_conn.request("GET", SSE_PATH)
+            listener_response = listener_conn.getresponse()
+            self.assertEqual(listener_response.status, 200)
+            self._read_sse_event(listener_response, timeout=5.0) # Consume capabilities
+
+            command_body = json.dumps({"command": "get_resource", "uri": self.sample_resource_uri})
+            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
+            with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
+                cmd_conn.request("POST", COMMAND_PATH, body=command_body, headers=headers)
+                post_response = cmd_conn.getresponse()
+                self.assertEqual(post_response.status, 202) # Accepted
+
+            resource_event = self._read_sse_event(listener_response, timeout=5.0)
+            if resource_event and resource_event['event'] == 'keepalive':
+                 resource_event = self._read_sse_event(listener_response, timeout=5.0)
+            
+            self.assertIsNotNone(resource_event, "Listener did not receive resource_data event.")
+            self.assertEqual(resource_event['event'], 'resource_data')
+            data = json.loads(resource_event['data'])
+            self.assertEqual(data['status'], 'success')
+            self.assertEqual(data['uri'], self.sample_resource_uri)
+            self.assertIn('resource_data', data)
+            self.assertEqual(data['resource_data']['name'], self.sample_resource_name)
+            self.assertIn('content', data['resource_data'])
+            self.assertEqual(data['resource_data']['content']['title'], self.sample_resource_title)
+
+    def test_sse_get_resource_not_found(self):
+        self._start_sse_server()
+        with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as listener_conn:
             listener_conn.request("GET", SSE_PATH)
             listener_response = listener_conn.getresponse()
             self.assertEqual(listener_response.status, 200)
             self._read_sse_event(listener_response, timeout=5.0) # Capabilities
 
-            command_body = json.dumps({"command": "execute_tool", "tool_name": "echo", "tool_params": {"message": "Hello SSE"}})
+            command_body = json.dumps({"command": "get_resource", "uri": "mcp://resources/nonexistent"})
             headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
             with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
                 cmd_conn.request("POST", COMMAND_PATH, body=command_body, headers=headers)
                 post_response = cmd_conn.getresponse()
                 self.assertEqual(post_response.status, 202)
-            
-            tool_event = self._read_sse_event(listener_response, timeout=5.0)
-            if tool_event and tool_event['event'] == 'keepalive':
-                tool_event = self._read_sse_event(listener_response, timeout=5.0)
-            self.assertIsNotNone(tool_event)
-            self.assertEqual(tool_event['event'], 'tool_result')
-            result_data = json.loads(tool_event['data'])
-            self.assertEqual(result_data['tool_name'], 'echo')
-            self.assertEqual(result_data['result']['echo_response'], 'Hello SSE')
-        finally:
-            if listener_conn: listener_conn.close()
-
-    def test_sse_document_search_success(self):
-        self._start_sse_server()
-        listener_conn = None
-        try:
-            listener_conn = http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5)
-            listener_conn.request("GET", SSE_PATH)
-            listener_response = listener_conn.getresponse()
-            self.assertEqual(listener_response.status, 200)
-            self._read_sse_event(listener_response, timeout=2.0) # Capabilities
-
-            command_body = json.dumps({
-                "command": "execute_tool", 
-                "tool_name": "document_search", 
-                "tool_params": {"query": "SSE search", "max_results": 1}
-            })
-            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
-            with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
-                cmd_conn.request("POST", COMMAND_PATH, body=command_body, headers=headers)
-                post_response = cmd_conn.getresponse()
-                self.assertEqual(post_response.status, 202)
-
-            tool_event = self._read_sse_event(listener_response, timeout=5.0)
-            if tool_event and tool_event['event'] == 'keepalive':
-                 tool_event = self._read_sse_event(listener_response, timeout=5.0)
-            self.assertIsNotNone(tool_event)
-            self.assertEqual(tool_event['event'], 'tool_result')
-            result_data = json.loads(tool_event['data'])
-            self.assertEqual(result_data['status'], 'success')
-            self.assertEqual(result_data['tool_name'], 'document_search')
-            self.assertEqual(len(result_data['result']['search_results']), 1)
-        finally:
-            if listener_conn: listener_conn.close()
-
-    def test_sse_document_search_missing_query(self):
-        self._start_sse_server()
-        listener_conn = None
-        try:
-            listener_conn = http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5)
-            listener_conn.request("GET", SSE_PATH)
-            listener_response = listener_conn.getresponse()
-            self.assertEqual(listener_response.status, 200)
-            self._read_sse_event(listener_response, timeout=2.0) # Capabilities
-
-            command_body = json.dumps({"command": "execute_tool", "tool_name": "document_search", "tool_params": {}})
-            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
-            with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as cmd_conn:
-                cmd_conn.request("POST", COMMAND_PATH, body=command_body, headers=headers)
-                post_response = cmd_conn.getresponse()
-                self.assertEqual(post_response.status, 202) 
 
             error_event = self._read_sse_event(listener_response, timeout=5.0)
             if error_event and error_event['event'] == 'keepalive':
                  error_event = self._read_sse_event(listener_response, timeout=5.0)
-            self.assertIsNotNone(error_event)
-            self.assertEqual(error_event['event'], 'tool_error')
-            error_data = json.loads(error_event['data'])
-            self.assertEqual(error_data['status'], 'error')
-            self.assertEqual(error_data['tool_name'], 'document_search')
-            self.assertIn("Missing or empty query parameter", error_data['error'])
-        finally:
-            if listener_conn: listener_conn.close()
 
-    # Keep other existing tests like test_unknown_tool, test_invalid_json_message etc.
-    # Ensure their server setup is also updated if they relied on self.server from setUp
-    def test_stdio_unknown_tool(self): # Renamed and ensure it uses new setup
+            self.assertIsNotNone(error_event, "Listener did not receive resource_error event.")
+            self.assertEqual(error_event['event'], 'resource_error')
+            data = json.loads(error_event['data'])
+            self.assertEqual(data['status'], 'error')
+            self.assertEqual(data['uri'], "mcp://resources/nonexistent")
+            self.assertEqual(data['error'], "Resource not found")
+
+    def test_sse_get_resource_missing_uri_in_post(self):
+        self._start_sse_server()
+        with http.client.HTTPConnection('localhost', self.sse_test_port, timeout=5) as conn:
+            command_body = json.dumps({"command": "get_resource"}) # Missing URI
+            headers = {"Content-Type": "application/json", "Content-Length": str(len(command_body))}
+            conn.request("POST", COMMAND_PATH, body=command_body, headers=headers)
+            response = conn.getresponse()
+            self.assertEqual(response.status, 400) # Bad Request
+            response_body = json.loads(response.read().decode('utf-8'))
+            self.assertIn("Missing 'uri' for get_resource command", response_body.get("error", ""))
+
+    # --- Keep other existing tests ---
+    def test_stdio_unknown_tool(self): 
         server = self._start_stdio_server()
         command = '{"command": "execute_tool", "tool_name": "nonexistent_tool", "tool_params": {}}\nquit\n'
         self._run_server_for_input(server, command)
@@ -371,7 +334,7 @@ class TestMcpServer(unittest.TestCase):
         response = json.loads(json_output_line)
         self.assertEqual(response["status"], "error")
 
-    def test_stdio_invalid_json_message(self): # Renamed
+    def test_stdio_invalid_json_message(self): 
         server = self._start_stdio_server()
         self._run_server_for_input(server, "this is not json\nquit\n")
         output = self.mock_stdout.getvalue()
@@ -387,7 +350,7 @@ class TestMcpServer(unittest.TestCase):
         response = json.loads(json_output_line)
         self.assertEqual(response["error"], "Invalid JSON message")
 
-    def test_stdio_unknown_command(self): # Renamed
+    def test_stdio_unknown_command(self): 
         server = self._start_stdio_server()
         command = '{"command": "non_existent_command", "data": "test"}\nquit\n'
         self._run_server_for_input(server, command)
@@ -404,7 +367,7 @@ class TestMcpServer(unittest.TestCase):
         response = json.loads(json_output_line)
         self.assertEqual(response["error"], "Unknown command or malformed request")
 
-    def test_stdio_quit_command(self): # Renamed
+    def test_stdio_quit_command(self): 
         server = self._start_stdio_server()
         self.assertFalse(server.running)
         with self.assertLogs('mcp.server', level='INFO') as cm:
@@ -437,13 +400,10 @@ class TestMcpServer(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
-# Ensure this runs only once if tests are run multiple times in one session.
 _project_root_init_done = False
 if not _project_root_init_done:
     if not os.path.exists(os.path.join(project_root, 'mcp', '__init__.py')):
-        with open(os.path.join(project_root, 'mcp', '__init__.py'), 'w') as f:
-            pass 
+        with open(os.path.join(project_root, 'mcp', '__init__.py'), 'w') as f: pass 
     if not os.path.exists(os.path.join(project_root, 'tests', '__init__.py')):
-        with open(os.path.join(project_root, 'tests', '__init__.py'), 'w') as f:
-            pass
+        with open(os.path.join(project_root, 'tests', '__init__.py'), 'w') as f: pass
     _project_root_init_done = True

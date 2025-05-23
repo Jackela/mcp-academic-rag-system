@@ -55,7 +55,10 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                         {"name": t_name, "description": t_info.get("description"), "schema": t_info.get("schema")}
                         for t_name, t_info in self.mcp_server.tools.items()
                     ],
-                    "resources": [res_info for res_info in self.mcp_server.resources.values()],
+                    "resources": [ # Exclude 'content' from capabilities
+                        {k: v for k, v in res_info.items() if k != 'content'}
+                        for res_info in self.mcp_server.resources.values()
+                    ],
                     "prompts": [prompt_info for prompt_info in self.mcp_server.prompts.values()]
                 }
                 capabilities_json = json.dumps(capabilities)
@@ -128,10 +131,10 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 return
 
             command = request_data.get("command")
-            tool_name = request_data.get("tool_name")
-            tool_params = request_data.get("tool_params", {})
-
+            
             if command == "execute_tool":
+                tool_name = request_data.get("tool_name")
+                tool_params = request_data.get("tool_params", {})
                 if not tool_name:
                     logger.warning(f"execute_tool command from {self.client_address} missing 'tool_name'.")
                     self.send_response(400)
@@ -140,8 +143,6 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"error": "Missing 'tool_name' for execute_tool command"}).encode('utf-8'))
                     return
 
-                # Asynchronously execute the tool command. McpServer will handle broadcasting.
-                # Use a thread to avoid blocking the HTTP handler
                 threading.Thread(target=self.mcp_server.execute_tool_command, 
                                  args=(tool_name, tool_params), daemon=True).start()
                 
@@ -149,6 +150,24 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "accepted", "message": f"Tool '{tool_name}' execution initiated."}).encode('utf-8'))
+
+            elif command == "get_resource":
+                resource_uri = request_data.get("uri")
+                if not resource_uri:
+                    logger.warning(f"get_resource command from {self.client_address} missing 'uri'.")
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Missing 'uri' for get_resource command"}).encode('utf-8'))
+                    return
+
+                threading.Thread(target=self.mcp_server.get_resource_command, 
+                                 args=(resource_uri,), daemon=True).start()
+
+                self.send_response(202) # Accepted
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "accepted", "message": "Get resource request initiated."}).encode('utf-8'))
             else:
                 logger.warning(f"Unknown command '{command}' received in POST from {self.client_address}.")
                 self.send_response(400) # Bad Request
@@ -160,7 +179,6 @@ class _McpSseHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         """Override to use application's logger."""
-        # Log actual HTTP requests at INFO, less important at DEBUG
         if "GET /mcp_sse" in format or "POST /mcp_command" in format :
              logger.info(f"HTTP: {self.address_string()} - {format % args}")
         else:
@@ -175,37 +193,23 @@ class McpServer:
     """
     
     def __init__(self, name: str, version: str):
-        """
-        初始化MCP服务器
-        
-        Args:
-            name: 服务器名称
-            version: 服务器版本
-        """
         self.name = name
         self.version = version
         self.tools = {}
         self.resources = {}
         self.prompts = {}
-        self.running = False # Initialized self.running
-        self.sse_clients = [] # List to store client output streams (wfile)
+        self.running = False 
+        self.sse_clients = [] 
         self.http_server_thread = None
         self.http_server = None
         logger.info(f"创建MCP服务器: {name} v{version}")
 
-        # Register default "echo" tool
         self.register_tool(
             name="echo",
             description="Echo the input",
-            schema={
-                "type": "object",
-                "properties": {"message": {"type": "string"}},
-                "required": ["message"]
-            },
+            schema={"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]},
             callback=lambda params: {"echo_response": params.get("message", "")}
         )
-
-        # Register "document_search" tool
         self.register_tool(
             name="document_search",
             description="Searches academic documents based on a query.",
@@ -217,173 +221,174 @@ class McpServer:
                 },
                 "required": ["query"]
             },
-            callback=_execute_document_search # Reference to the callback function
+            callback=_execute_document_search
+        )
+        self.register_resource(
+            uri="mcp://resources/literature/doc123",
+            name="Sample Document 123",
+            description="A sample academic paper providing placeholder content.",
+            mime_type="application/json",
+            content={
+                "title": "Foundations of Fictional Science", "author": "Dr. A.I. Construct", "publication_year": 2024,
+                "abstract": "This paper explores the fundamental principles of sciences that don't actually exist.",
+                "body_paragraphs": ["Paragraph 1...", "Paragraph 2...", "Paragraph 3..."],
+                "keywords": ["fiction", "dummy data", "mcp resource"]
+            }
         )
     
     def register_tool(self, name: str, description: str, schema: Dict[str, Any], callback: callable) -> None:
-        """
-        注册MCP工具
-        
-        Args:
-            name: 工具名称
-            description: 工具描述
-            schema: 工具的JSON Schema
-            callback: 工具执行回调函数
-        """
-        self.tools[name] = {
-            'name': name,
-            'description': description,
-            'schema': schema,
-            'callback': callback
-        }
+        self.tools[name] = {'name': name, 'description': description, 'schema': schema, 'callback': callback}
         logger.info(f"注册MCP工具: {name}")
     
     def register_resource(self, uri: str, name: str, description: str, 
-                         mime_type: Optional[str] = None) -> None:
-        """
-        注册MCP资源
-        
-        Args:
-            uri: 资源URI
-            name: 资源名称
-            description: 资源描述
-            mime_type: MIME类型(可选)
-        """
+                         mime_type: Optional[str] = None, content: Any = None) -> None:
         self.resources[uri] = {
-            'uri': uri,
-            'name': name,
-            'description': description,
-            'mime_type': mime_type
+            'uri': uri, 'name': name, 'description': description, 
+            'mime_type': mime_type, 'content': content
         }
         logger.info(f"注册MCP资源: {name} ({uri})")
     
     def register_prompt(self, name: str, description: str, 
                         arguments: Optional[List[Dict[str, Any]]] = None) -> None:
-        """
-        注册MCP提示模板
-        
-        Args:
-            name: 提示模板名称
-            description: 提示模板描述
-            arguments: 提示模板参数(可选)
-        """
-        self.prompts[name] = {
-            'name': name,
-            'description': description,
-            'arguments': arguments or []
-        }
+        self.prompts[name] = {'name': name, 'description': description, 'arguments': arguments or []}
         logger.info(f"注册MCP提示模板: {name}")
-    
-    def start(self, transport_type: str, **kwargs) -> None:
-        """
-        启动MCP服务器
+
+    def broadcast_sse_message(self, event_name: str, data: dict) -> None:
+        if not self.running:
+            logger.info("Server not running, skipping SSE broadcast.")
+            return
+        if not self.sse_clients:
+            logger.debug(f"No SSE clients connected, not broadcasting event: {event_name}")
+            return
+
+        logger.debug(f"Broadcasting SSE event: {event_name}, data: {data} to {len(self.sse_clients)} clients.")
+        message_str = f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
+        message_bytes = message_str.encode('utf-8')
         
-        Args:
-            transport_type: 传输类型 ('stdio'或'sse')
-            **kwargs: 其他传输参数
-        """
+        clients_to_remove = []
+        for client_wfile in list(self.sse_clients): 
+            try:
+                client_wfile.write(message_bytes)
+                client_wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as e:
+                logger.info(f"SSE client disconnected ({type(e).__name__}). Removing client.")
+                clients_to_remove.append(client_wfile)
+            except Exception as e:
+                logger.exception(f"Error writing to SSE client: {e}. Removing client.")
+                clients_to_remove.append(client_wfile)
+        
+        for client_wfile in clients_to_remove:
+            if client_wfile in self.sse_clients:
+                self.sse_clients.remove(client_wfile)
+                try: client_wfile.close()
+                except Exception: pass
+
+    def execute_tool_command(self, tool_name: str, tool_params: dict) -> None:
+        logger.info(f"Executing tool command: {tool_name} with params: {tool_params}")
+        if tool_name in self.tools:
+            tool_definition = self.tools[tool_name]
+            callback = tool_definition.get('callback')
+            if callable(callback):
+                try:
+                    result = callback(tool_params)
+                    response_data = {"mcp_protocol_version": "1.0", "status": "success", "tool_name": tool_name, "result": result}
+                    self.broadcast_sse_message(event_name="tool_result", data=response_data)
+                except Exception as e:
+                    logger.exception(f"Error executing tool '{tool_name}': {e}")
+                    error_data = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": str(e)}
+                    self.broadcast_sse_message(event_name="tool_error", data=error_data)
+            else:
+                error_data = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": "Tool has no callback"}
+                self.broadcast_sse_message(event_name="tool_error", data=error_data)
+        else:
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": f"Tool '{tool_name}' not found"}
+            self.broadcast_sse_message(event_name="tool_error", data=error_data)
+
+    def get_resource_command(self, resource_uri: str) -> None:
+        logger.info(f"Handling get_resource command for URI: {resource_uri}")
+        if not resource_uri:
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}
+            self.broadcast_sse_message(event_name="resource_error", data=error_data)
+            return
+
+        resource_info = self.resources.get(resource_uri)
+        if resource_info:
+            response_data = {"mcp_protocol_version": "1.0", "status": "success", "uri": resource_uri, "resource_data": resource_info}
+            self.broadcast_sse_message(event_name="resource_data", data=response_data)
+        else:
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "uri": resource_uri, "error": "Resource not found"}
+            self.broadcast_sse_message(event_name="resource_error", data=error_data)
+
+    def start(self, transport_type: str, **kwargs) -> None:
         logger.info(f"启动MCP服务器 (传输类型: {transport_type})")
-        self.running = True # Set self.running to True
+        self.running = True
 
         if transport_type == 'stdio':
             logger.info("Starting McpServer in STDIO mode.")
             try:
                 while self.running:
                     line = sys.stdin.readline()
-                    line = line.strip() # Strip whitespace
+                    line = line.strip()
                     if not line or line == "quit":
                         logger.info("Received quit signal or empty line, stopping STDIO listener.")
                         break
                     
-                    if line == "discover": # Simple "discover" command for now
+                    if line == "discover":
                         logger.info("Received capabilities discovery request.")
                         capabilities = {
-                            "mcp_protocol_version": "1.0",
-                            "server_name": self.name,
-                            "server_version": self.version,
-                            # Refined tools list for capabilities: ensure no callback is included
-                            "tools": [
-                                {
-                                    "name": t_name,
-                                    "description": t_info.get("description"),
-                                    "schema": t_info.get("schema")
-                                } for t_name, t_info in self.tools.items()
-                            ],
-                            "resources": [res_info for res_info in self.resources.values()],
+                            "mcp_protocol_version": "1.0", "server_name": self.name, "server_version": self.version,
+                            "tools": [{"name": t_name, "description": t_info.get("description"), "schema": t_info.get("schema")} for t_name, t_info in self.tools.items()],
+                            "resources": [{k: v for k, v in res_info.items() if k != 'content'} for res_info in self.resources.values()],
                             "prompts": [prompt_info for prompt_info in self.prompts.values()]
                         }
-                        capabilities_json = json.dumps(capabilities)
-                        print(capabilities_json)
+                        print(json.dumps(capabilities))
                         sys.stdout.flush()
                     else:
-                        # Try to parse as JSON for other commands
                         try:
                             request_data = json.loads(line)
                             logger.debug(f"Received MCP JSON message: {request_data}")
+                            response = {}
+                            command = request_data.get("command")
 
-                            if isinstance(request_data, dict) and request_data.get("command") == "execute_tool":
+                            if command == "execute_tool":
                                 logger.info("Received execute_tool request.")
                                 tool_name = request_data.get("tool_name")
                                 tool_params = request_data.get("tool_params", {})
-                                response = {}
-
                                 if tool_name in self.tools:
-                                    tool_definition = self.tools[tool_name]
-                                    callback = tool_definition.get('callback')
-
+                                    callback = self.tools[tool_name].get('callback')
                                     if callable(callback):
                                         try:
                                             result = callback(tool_params)
-                                            response = {
-                                                "mcp_protocol_version": "1.0",
-                                                "status": "success",
-                                                "tool_name": tool_name,
-                                                "result": result
-                                            }
+                                            response = {"mcp_protocol_version": "1.0", "status": "success", "tool_name": tool_name, "result": result}
                                         except Exception as e:
                                             logger.exception(f"Error executing tool '{tool_name}': {e}")
-                                            response = {
-                                                "mcp_protocol_version": "1.0",
-                                                "status": "error",
-                                                "tool_name": tool_name,
-                                                "error": str(e)
-                                            }
+                                            response = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": str(e)}
                                     else:
-                                        logger.error(f"Tool '{tool_name}' has no callable callback.")
-                                        response = {
-                                            "mcp_protocol_version": "1.0",
-                                            "status": "error",
-                                            "tool_name": tool_name,
-                                            "error": "Tool has no callback"
-                                        }
+                                        response = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": "Tool has no callback"}
                                 else:
-                                    logger.warning(f"Tool '{tool_name}' not found.")
-                                    response = {
-                                        "mcp_protocol_version": "1.0",
-                                        "status": "error",
-                                        "error": f"Tool '{tool_name}' not found"
-                                    }
-                                
-                                print(json.dumps(response))
-                                sys.stdout.flush()
+                                    response = {"mcp_protocol_version": "1.0", "status": "error", "error": f"Tool '{tool_name}' not found"}
+                            
+                            elif command == "get_resource":
+                                logger.info("Received get_resource request.")
+                                resource_uri = request_data.get("uri")
+                                if not resource_uri:
+                                    response = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}
+                                else:
+                                    resource_info = self.resources.get(resource_uri)
+                                    if resource_info:
+                                        response = {"mcp_protocol_version": "1.0", "status": "success", "uri": resource_uri, "resource_data": resource_info}
+                                    else:
+                                        response = {"mcp_protocol_version": "1.0", "status": "error", "uri": resource_uri, "error": "Resource not found"}
                             else:
                                 logger.warning(f"Unknown command or malformed request: {request_data}")
-                                response = {
-                                    "mcp_protocol_version": "1.0",
-                                    "status": "error",
-                                    "error": "Unknown command or malformed request"
-                                }
-                                print(json.dumps(response))
-                                sys.stdout.flush()
+                                response = {"mcp_protocol_version": "1.0", "status": "error", "error": "Unknown command or malformed request"}
+                            
+                            print(json.dumps(response))
+                            sys.stdout.flush()
 
                         except json.JSONDecodeError:
                             logger.warning(f"Received non-JSON message or unknown simple command: {line}")
-                            response = {
-                                "mcp_protocol_version": "1.0",
-                                "status": "error",
-                                "error": "Invalid JSON message"
-                            }
-                            print(json.dumps(response))
+                            print(json.dumps({"mcp_protocol_version": "1.0", "status": "error", "error": "Invalid JSON message"}))
                             sys.stdout.flush()
             except KeyboardInterrupt:
                 logger.info("STDIO listener interrupted by user.")
@@ -395,34 +400,23 @@ class McpServer:
                 logger.error("SSE transport requires a port to be specified.")
                 self.running = False 
                 return
-
             logger.info(f"Initializing SSE transport on port {port}")
-            
             handler_class_with_instance = functools.partial(_McpSseHandler, self)
-            
             self.http_server = HTTPServer(('', port), handler_class_with_instance)
             self.http_server_thread = threading.Thread(target=self.http_server.serve_forever, daemon=True)
             self.http_server_thread.start()
             logger.info(f"SSE HTTP server started on port {port}. Listening on {SSE_PATH} for SSE and {COMMAND_PATH} for commands.")
-            # self.running is already True. Main thread of app.py will keep process alive.
         else:
             logger.error(f"Unsupported transport type: {transport_type}")
-            # Set running to False as server cannot start with unsupported type
             self.running = False 
-            return # Exit if transport type is not supported
-
-        # TODO: Further implementation for MCP protocol handling might be needed here
+            return
         
-        # For STDIO, the loop above blocks. For SSE, the http_server_thread runs in background.
-        # Do not set self.running to False here if SSE server is active.
         if transport_type == 'stdio':
             self.running = False 
     
     def stop(self) -> None:
-        """停止MCP服务器"""
         logger.info("McpServer stopping...") 
-        self.running = False # Signal all loops (including SSE handler loops) to stop
-
+        self.running = False 
         if self.http_server:
             logger.info("Stopping SSE HTTP server...")
             self.http_server.shutdown() 
@@ -432,76 +426,37 @@ class McpServer:
             self.http_server = None
             self.http_server_thread = None
         
-        # Clear SSE clients
-        # Note: individual client handler loops should also detect self.running == False
-        # and exit, which then removes them from sse_clients.
-        # Clearing here is a final measure.
-        for client_wfile in self.sse_clients[:]: # Iterate over a copy
-             try:
-                 client_wfile.close() # Attempt to close any remaining client connections
-             except Exception as e:
-                 logger.debug(f"Error closing an SSE client stream: {e}")
+        for client_wfile in self.sse_clients[:]:
+             try: client_wfile.close()
+             except Exception as e: logger.debug(f"Error closing an SSE client stream: {e}")
         self.sse_clients.clear()
         logger.info("McpServer stopped.")
 
-# 示例用法，未来将扩展
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    server = McpServer("example-server", "0.1.0")
-    
-    server_mode = "sse" # Change to "stdio" to test STDIO mode
-
-    if server_mode == "sse":
-        server.start(transport_type="sse", port=3000)
-        if server.running: # Check if server started successfully (e.g., port was available)
-            logger.info("SSE Server is running. Press Ctrl+C to stop.")
-            try:
-                # Keep the main thread alive, otherwise the daemon HTTP server thread will also exit
-                # if this script is the main program.
-                while server.running: 
-                    threading.Event().wait(1) # Keep main thread alive
-            except KeyboardInterrupt:
-                logger.info("Keyboard interrupt received from console.")
-            finally:
-                logger.info("Main thread initiating server stop sequence.")
-                server.stop()
-        else:
-            logger.error("Server failed to start in SSE mode.")
-    else:
-        server.start(transport_type="stdio")
-        # For stdio, start() is blocking, so it will run until "quit" or EOF.
-    
-    logger.info("McpServer example finished.")
-
-
-# Callback function for document_search tool (defined at module level or as a static/member method)
+# Global level (or static method if preferred and class structure allows easily)
 def _execute_document_search(params: dict) -> dict:
     query = params.get("query")
-    # max_results is int, ensure conversion if it comes as string from some JSON parsers, though schema says integer.
-    # Default value from schema is handled by tool caller or can be re-verified here.
-    max_results_str = params.get("max_results", "3") # Default to 3 if not provided
-    
-    try:
-        max_results = int(max_results_str)
-    except ValueError:
-        # Handle case where max_results is not a valid integer, though schema should prevent this.
-        # For robustness, return an error or use a default.
-        logger.warning(f"Invalid max_results value '{max_results_str}', defaulting to 3.")
-        max_results = 3
+    max_results_str = params.get("max_results", "3")
+    try: max_results = int(max_results_str)
+    except ValueError: max_results = 3; logger.warning(f"Invalid max_results '{max_results_str}', using 3.")
+    if not query or not query.strip(): return {"error": "Missing or empty query parameter"}
+    results = [{"id": f"doc_{i}", "title": f"Dummy Document {i} about '{query}'", 
+                "snippet": f"Snippet for doc {i} on '{query}'.", "score": round(1.0/i, 2)} 
+               for i in range(1, max_results + 1)]
+    return {"search_results": results, "query_received": query}
 
-    if not query or not query.strip():
-        # This error case should ideally be caught by schema validation if fully implemented by the client
-        # or a validation layer before calling the callback.
-        # For now, the callback handles it as per instructions.
-        return {"error": "Missing or empty query parameter"}
-
-    dummy_results = []
-    for i in range(1, max_results + 1):
-        dummy_results.append({
-            "id": f"doc_{i}",
-            "title": f"Dummy Document {i} about '{query}'",
-            "snippet": f"This is a snippet for document {i} which matches the query: '{query}'.",
-            "score": round(1.0 / i, 2)
-        })
-    return {"search_results": dummy_results, "query_received": query}
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    server = McpServer("example-server", "0.1.0")
+    server_mode = "sse" 
+    if server_mode == "sse":
+        server.start(transport_type="sse", port=3000)
+        if server.running:
+            logger.info("SSE Server is running. Press Ctrl+C to stop.")
+            try:
+                while server.running: threading.Event().wait(1)
+            except KeyboardInterrupt: logger.info("Keyboard interrupt received.")
+            finally: server.stop()
+        else: logger.error("Server failed to start in SSE mode.")
+    else:
+        server.start(transport_type="stdio")
+    logger.info("McpServer example finished.")

@@ -66,9 +66,17 @@ Currently implemented tools (some are placeholders):
 
 ### 资源 (Resources)
 
-- **文献资源**：访问已处理文献的结构化内容
-- **会话历史**：查看和继续之前的交互记录
-- **文献集合**：管理主题相关的文献分组
+The server can register and serve various resources. Resource `content` is not included in the initial capabilities discovery but can be fetched using the `get_resource` command (see "MCP Commands" section).
+
+-   **Sample Resource:**
+    *   **URI:** `mcp://resources/literature/doc123`
+    *   **Name:** Sample Document 123
+    *   **Description:** A sample academic paper providing placeholder content. Its content includes fields like `title`, `author`, `abstract`, etc.
+    *   This resource is registered by default and can be retrieved using the `get_resource` command.
+
+- **(Planned) 文献资源**：访问已处理文献的结构化内容
+- **(Planned) 会话历史**：查看和继续之前的交互记录
+- **(Planned) 文献集合**：管理主题相关的文献分组
 
 ### 提示模板 (Prompts)
 
@@ -95,7 +103,7 @@ Currently implemented tools (some are placeholders):
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
-- [ ] MCP资源 (Resources) 功能开发
+- [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [ ] MCP提示 (Prompts) 功能开发
 - [ ] Web界面开发
 - [ ] 高级RAG功能增强
@@ -172,3 +180,52 @@ Once the server is running in SSE mode (e.g., on port 8000):
     ```
     The POST request will receive an HTTP 202 Accepted response: `{"status": "accepted", "message": "Tool execution initiated."}`.
     The actual result of the "echo" tool will then be broadcast as an SSE event (e.g., `event: tool_result`) to all connected SSE clients (including your `curl -N` session).
+
+## MCP Commands
+
+This section details common MCP commands supported by the server across different transports.
+
+### `get_resource`
+
+*   **Description:** Retrieves a registered MCP resource, including its content.
+*   **Parameters (in JSON payload):**
+    *   `command` (string, required): Must be `"get_resource"`.
+    *   `uri` (string, required): The URI of the resource to retrieve.
+*   **Example MCP Command (for POST to `/mcp_command` or STDIO input):**
+    ```json
+    {
+        "command": "get_resource",
+        "uri": "mcp://resources/literature/doc123"
+    }
+    ```
+*   **Success Response (STDIO or `resource_data` SSE event data):**
+    The full resource object, including its `uri`, `name`, `description`, `mime_type`, and `content`.
+    Example for `mcp://resources/literature/doc123`:
+    ```json
+    {
+        "mcp_protocol_version": "1.0",
+        "status": "success",
+        "uri": "mcp://resources/literature/doc123",
+        "resource_data": {
+            "uri": "mcp://resources/literature/doc123",
+            "name": "Sample Document 123",
+            "description": "A sample academic paper providing placeholder content.",
+            "mime_type": "application/json",
+            "content": {
+                "title": "Foundations of Fictional Science",
+                "author": "Dr. A.I. Construct",
+                "publication_year": 2024,
+                "abstract": "This paper explores the fundamental principles of sciences that don't actually exist.",
+                "body_paragraphs": [
+                    "Paragraph 1 discussing a made-up theory.",
+                    "Paragraph 2 with some fabricated data.",
+                    "Paragraph 3 concluding with speculative insights."
+                ],
+                "keywords": ["fiction", "dummy data", "mcp resource"]
+            }
+        }
+    }
+    ```
+*   **Error Responses (STDIO or `resource_error` SSE event data):**
+    *   If resource not found: `{"mcp_protocol_version": "1.0", "status": "error", "uri": "<requested_uri>", "error": "Resource not found"}`
+    *   If URI missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}`
