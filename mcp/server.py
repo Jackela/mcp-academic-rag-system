@@ -103,8 +103,7 @@ class _McpSseHandler(BaseHTTPRequestHandler):
         
         elif self.path == '/' or self.path == '/index.html':
             try:
-                script_dir = os.path.dirname(os.path.abspath(__file__)) # Directory of server.py
-                # Assumes server.py is in project_root/mcp/ and web/ is in project_root/
+                script_dir = os.path.dirname(os.path.abspath(__file__)) 
                 file_path = os.path.join(script_dir, '..', 'web', 'index.html') 
                 
                 if not os.path.exists(file_path):
@@ -125,7 +124,6 @@ class _McpSseHandler(BaseHTTPRequestHandler):
             self.send_error(404, 'File Not Found or Invalid Endpoint')
 
     def do_POST(self):
-        """Handles POST requests, intended for receiving MCP commands."""
         if self.path == COMMAND_PATH:
             content_length_str = self.headers.get('Content-Length')
             if not content_length_str:
@@ -147,7 +145,7 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 return
 
             command = request_data.get("command")
-            response_sent = False
+            response_sent = False 
             
             if command == "execute_tool":
                 tool_name = request_data.get("tool_name")
@@ -183,7 +181,19 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "accepted", "message": "Get prompt definition request initiated."}).encode('utf-8'))
                 response_sent = True
 
-            if not response_sent: # Handles unknown commands
+            elif command == "execute_prompt":
+                prompt_name = request_data.get("name")
+                prompt_args = request_data.get("arguments", {})
+                if not prompt_name:
+                    self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Missing name for execute_prompt command"}).encode('utf-8'))
+                    return
+                threading.Thread(target=self.mcp_server.execute_prompt_command, args=(prompt_name, prompt_args), daemon=True).start()
+                self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
+                self.wfile.write(json.dumps({"status": "accepted", "message": f"Prompt '{prompt_name}' execution initiated."}).encode('utf-8'))
+                response_sent = True
+
+            if not response_sent: 
                 logger.warning(f"Unknown command '{command}' received in POST from {self.client_address}.")
                 self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"error": "Unknown command"}).encode('utf-8'))
@@ -297,7 +307,6 @@ class McpServer:
 
     def execute_tool_command(self, tool_name: str, tool_params: dict) -> None:
         logger.info(f"Executing tool command: {tool_name} with params: {tool_params}")
-        # ... (rest of method remains the same)
         if tool_name in self.tools:
             tool_definition = self.tools[tool_name]
             callback = tool_definition.get('callback')
@@ -317,15 +326,12 @@ class McpServer:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": f"Tool '{tool_name}' not found"}
             self.broadcast_sse_message(event_name="tool_error", data=error_data)
 
-
     def get_resource_command(self, resource_uri: str) -> None:
         logger.info(f"Handling get_resource command for URI: {resource_uri}")
-        # ... (rest of method remains the same)
         if not resource_uri:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}
             self.broadcast_sse_message(event_name="resource_error", data=error_data)
             return
-
         resource_info = self.resources.get(resource_uri)
         if resource_info:
             response_data = {"mcp_protocol_version": "1.0", "status": "success", "uri": resource_uri, "resource_data": resource_info}
@@ -336,12 +342,10 @@ class McpServer:
 
     def get_prompt_definition_command(self, prompt_name: str) -> None:
         logger.info(f"Handling get_prompt_definition command for: {prompt_name}")
-        # ... (rest of method remains the same)
         if not prompt_name:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing name for get_prompt_definition"}
             self.broadcast_sse_message(event_name="prompt_definition_error", data=error_data)
             return
-
         prompt_info = self.prompts.get(prompt_name)
         if prompt_info:
             response_data = {"mcp_protocol_version": "1.0", "status": "success", "name": prompt_name, "prompt_definition": prompt_info}
@@ -349,6 +353,49 @@ class McpServer:
         else:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt not found"}
             self.broadcast_sse_message(event_name="prompt_definition_error", data=error_data)
+
+    def execute_prompt_command(self, prompt_name: str, prompt_args: dict) -> None:
+        logger.info(f"Executing prompt command: {prompt_name} with args: {prompt_args}")
+        
+        if not prompt_name:
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing prompt name for execute_prompt"}
+            self.broadcast_sse_message(event_name="prompt_error", data=error_data)
+            return
+
+        prompt_info = self.prompts.get(prompt_name)
+        if not prompt_info:
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt not found"}
+            self.broadcast_sse_message(event_name="prompt_error", data=error_data)
+            return
+
+        if prompt_name == "summarize_document_abstract":
+            document_uri = prompt_args.get("document_uri")
+            if not document_uri:
+                error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Missing document_uri argument for summarize_document_abstract"}
+                self.broadcast_sse_message(event_name="prompt_error", data=error_data)
+                return
+            
+            resource = self.resources.get(document_uri)
+            if not resource:
+                error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": f"Resource not found: {document_uri}"}
+                self.broadcast_sse_message(event_name="prompt_error", data=error_data)
+                return
+            
+            abstract = resource.get("content", {}).get("abstract")
+            if not abstract:
+                error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": f"Abstract not found in resource: {document_uri}"}
+                self.broadcast_sse_message(event_name="prompt_error", data=error_data)
+                return
+            
+            # Placeholder summary logic
+            summary = f"Summary of abstract for '{resource.get('name', document_uri)}': {abstract[:100]}..." if abstract else "Abstract was empty."
+            result_data = {"summary": summary, "source_uri": document_uri}
+            response_data = {"mcp_protocol_version": "1.0", "status": "success", "prompt_name": prompt_name, "result": result_data}
+            self.broadcast_sse_message(event_name="prompt_result", data=response_data)
+        else:
+            logger.warning(f"Execution for prompt '{prompt_name}' is not implemented yet.")
+            error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt execution not implemented yet"}
+            self.broadcast_sse_message(event_name="prompt_error", data=error_data)
 
 
     def start(self, transport_type: str, **kwargs) -> None:
@@ -383,7 +430,6 @@ class McpServer:
                             command = request_data.get("command")
 
                             if command == "execute_tool":
-                                # ... (STDIO execute_tool logic remains the same) ...
                                 logger.info("Received execute_tool request.")
                                 tool_name = request_data.get("tool_name")
                                 tool_params = request_data.get("tool_params", {})
@@ -402,7 +448,6 @@ class McpServer:
                                     response = {"mcp_protocol_version": "1.0", "status": "error", "error": f"Tool '{tool_name}' not found"}
                             
                             elif command == "get_resource":
-                                # ... (STDIO get_resource logic remains the same) ...
                                 logger.info("Received get_resource request.")
                                 resource_uri = request_data.get("uri")
                                 if not resource_uri:
@@ -415,7 +460,6 @@ class McpServer:
                                         response = {"mcp_protocol_version": "1.0", "status": "error", "uri": resource_uri, "error": "Resource not found"}
                             
                             elif command == "get_prompt_definition":
-                                # ... (STDIO get_prompt_definition logic remains the same) ...
                                 logger.info("Received get_prompt_definition request.")
                                 prompt_name = request_data.get("name")
                                 if not prompt_name:
@@ -426,6 +470,35 @@ class McpServer:
                                         response = {"mcp_protocol_version": "1.0", "status": "success", "name": prompt_name, "prompt_definition": prompt_info}
                                     else:
                                         response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt not found"}
+                            
+                            elif command == "execute_prompt":
+                                logger.info("Received execute_prompt request.")
+                                prompt_name = request_data.get("name")
+                                prompt_args = request_data.get("arguments", {})
+                                if not prompt_name:
+                                    response = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing prompt name"}
+                                else:
+                                    prompt_info = self.prompts.get(prompt_name)
+                                    if not prompt_info:
+                                        response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt not found"}
+                                    else:
+                                        if prompt_name == "summarize_document_abstract":
+                                            document_uri = prompt_args.get("document_uri")
+                                            if not document_uri:
+                                                response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Missing document_uri argument"}
+                                            else:
+                                                resource = self.resources.get(document_uri)
+                                                if not resource:
+                                                    response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Resource not found"}
+                                                else:
+                                                    abstract = resource.get("content", {}).get("abstract")
+                                                    if not abstract:
+                                                        response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Abstract not found in resource"}
+                                                    else:
+                                                        summary = f"Summary of abstract: {abstract}" # Placeholder
+                                                        response = {"mcp_protocol_version": "1.0", "status": "success", "prompt_name": prompt_name, "result": {"summary": summary}}
+                                        else:
+                                            response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt execution not implemented yet"}
                             else:
                                 logger.warning(f"Unknown command or malformed request: {request_data}")
                                 response = {"mcp_protocol_version": "1.0", "status": "error", "error": "Unknown command or malformed request"}

@@ -87,6 +87,27 @@ The server can register and provide definitions for various prompt templates. Pr
     *   **Arguments:**
         *   `document_uri` (string, required): The MCP URI of the document resource (e.g., `mcp://resources/literature/doc123`) whose abstract needs summarizing.
     *   This prompt is registered by default. Its full definition can be fetched using the `get_prompt_definition` command.
+    *   **Execution Example:**
+        ```json
+        {
+            "command": "execute_prompt",
+            "name": "summarize_document_abstract",
+            "arguments": {
+                "document_uri": "mcp://resources/literature/doc123"
+            }
+        }
+        ```
+    *   **Expected Result (from `prompt_result` event or STDIO):**
+        ```json
+        {
+            "mcp_protocol_version": "1.0",
+            "status": "success",
+            "prompt_name": "summarize_document_abstract",
+            "result": {
+                "summary": "Summary of abstract: This paper explores the fundamental principles of sciences that don't actually exist."
+            }
+        }
+        ```
 
 - **(Planned) 文献分析提示**：用于分析和总结文献内容
 - **(Planned) 比较研究提示**：比较多篇文献的内容和观点
@@ -112,7 +133,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
-- [/] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' registered, `get_prompt_definition` command implemented)
+- [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
 - [/] Web界面开发 (basic read-only capabilities viewer implemented)
 - [ ] 高级RAG功能增强
 - [ ] 安全性和性能优化
@@ -276,6 +297,43 @@ This section details common MCP commands supported by the server across differen
 *   **Error Responses (STDIO or `prompt_definition_error` SSE event data):**
     *   If prompt not found: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<requested_name>", "error": "Prompt not found"}`
     *   If name missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing name for get_prompt_definition"}`
+
+### `execute_prompt`
+
+*   **Description:** Executes a registered MCP prompt with the provided arguments. (Currently, only "summarize_document_abstract" has implemented execution logic).
+*   **Parameters (in JSON payload):**
+    *   `command` (string, required): Must be `"execute_prompt"`.
+    *   `name` (string, required): The name of the prompt to execute.
+    *   `arguments` (object, required): An object containing key-value pairs for the arguments required by the prompt.
+*   **Example MCP Command (for POST to `/mcp_command` or STDIO input to execute "summarize_document_abstract"):**
+    ```json
+    {
+        "command": "execute_prompt",
+        "name": "summarize_document_abstract",
+        "arguments": {
+            "document_uri": "mcp://resources/literature/doc123"
+        }
+    }
+    ```
+*   **Success Response (STDIO or `prompt_result` SSE event data):**
+    Contains the result of the prompt execution.
+    Example for "summarize_document_abstract":
+    ```json
+    {
+        "mcp_protocol_version": "1.0",
+        "status": "success",
+        "prompt_name": "summarize_document_abstract",
+        "result": {
+            "summary": "Summary of abstract: This paper explores the fundamental principles of sciences that don't actually exist."
+        }
+    }
+    ```
+*   **Error Responses (STDIO or `prompt_error` SSE event data):**
+    *   Prompt not found: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<prompt_name>", "error": "Prompt not found"}`
+    *   Argument missing: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<prompt_name>", "error": "Missing <argument_name> argument for <prompt_name>"}` (e.g., "Missing document_uri argument for summarize_document_abstract")
+    *   Resource not found (if applicable to prompt): `{"mcp_protocol_version": "1.0", "status": "error", "name": "<prompt_name>", "error": "Resource not found: <uri>"}`
+    *   Abstract not found (if applicable): `{"mcp_protocol_version": "1.0", "status": "error", "name": "<prompt_name>", "error": "Abstract not found in resource: <uri>"}`
+    *   Prompt execution not implemented: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<prompt_name>", "error": "Prompt execution not implemented yet"}`
 
 ## Web Interface
 
