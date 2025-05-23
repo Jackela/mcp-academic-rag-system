@@ -19,6 +19,13 @@
         .status-connecting { background-color: #e7f3fe; color: #004085; border: 1px solid #b8daff; }
         .status-connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        /* Styles for tool/prompt interaction */
+        .tool-interaction, .prompt-interaction { margin-top: 10px; padding: 10px; background-color: #e9e9e9; border-radius: 4px; }
+        .tool-interaction input[type="text"], .prompt-interaction input[type="text"] { margin-right: 5px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; min-width: 300px; }
+        .tool-interaction button, .prompt-interaction button { padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .tool-interaction button:hover, .prompt-interaction button:hover { background-color: #0056b3; }
+        .result-display { margin-top: 10px; padding: 10px; background-color: #f0f0f0; border: 1px solid #ccc; min-height: 20px; white-space: pre-wrap; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -47,121 +54,6 @@
         </div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const eventSource = new EventSource('/mcp_sse');
-            const statusMessageDiv = document.getElementById('status-message');
-            const toolsListDiv = document.getElementById('tools-list');
-            const resourcesListDiv = document.getElementById('resources-list');
-            const promptsListDiv = document.getElementById('prompts-list');
-
-            console.log("Attempting to connect to MCP Server via SSE...");
-
-            eventSource.onopen = function() {
-                statusMessageDiv.textContent = 'Connected to MCP Server. Waiting for capabilities...';
-                statusMessageDiv.className = 'container status-connected'; // Update class for styling
-                console.log("SSE connection opened.");
-            };
-
-            eventSource.onerror = function(error) {
-                statusMessageDiv.textContent = 'Error connecting to MCP Server. Make sure it is running and accessible. Retrying...';
-                statusMessageDiv.className = 'container status-error'; // Update class for styling
-                console.error('EventSource failed:', error);
-                // EventSource will automatically retry, no need to explicitly call eventSource.close() unless specific retry logic is needed.
-            };
-
-            eventSource.addEventListener('capabilities', function(event) {
-                console.log('Capabilities event received:', event.data);
-                try {
-                    const capabilities = JSON.parse(event.data);
-                    statusMessageDiv.textContent = `Capabilities received. Server: ${capabilities.server_name || 'N/A'} v${capabilities.server_version || 'N/A'}`;
-                    statusMessageDiv.className = 'container status-connected';
-
-                    renderTools(capabilities.tools);
-                    renderResources(capabilities.resources);
-                    renderPrompts(capabilities.prompts);
-
-                    // Decide whether to close the connection. For now, keeping it open as per instructions.
-                    // eventSource.close(); 
-                    // console.log("SSE connection closed after receiving capabilities.");
-
-                } catch (e) {
-                    console.error('Error parsing capabilities JSON:', e);
-                    statusMessageDiv.textContent = 'Error processing capabilities from server.';
-                    statusMessageDiv.className = 'container status-error';
-                }
-            });
-            
-            // Add listener for keepalive if server sends them, to prevent timeouts or log activity
-            eventSource.addEventListener('keepalive', function(event) {
-                console.log('Keepalive event received');
-            });
-
-
-            function renderTools(toolsData) {
-                toolsListDiv.innerHTML = ''; // Clear current content
-                if (!toolsData || !Array.isArray(toolsData) || toolsData.length === 0) {
-                    toolsListDiv.innerHTML = '<p>No tools available.</p>';
-                    return;
-                }
-                toolsData.forEach(tool => {
-                    const toolDiv = document.createElement('div');
-                    toolDiv.className = 'item';
-                    toolDiv.innerHTML = `
-                        <div class="item-name">${tool.name}</div>
-                        <div class="item-meta">${tool.description || 'No description provided.'}</div>
-                        <pre>Schema: ${JSON.stringify(tool.schema || {}, null, 2)}</pre>
-                    `;
-                    toolsListDiv.appendChild(toolDiv);
-                });
-            }
-
-            function renderResources(resourcesData) {
-                resourcesListDiv.innerHTML = ''; // Clear current content
-                if (!resourcesData || !Array.isArray(resourcesData) || resourcesData.length === 0) {
-                    resourcesListDiv.innerHTML = '<p>No resources available.</p>';
-                    return;
-                }
-                resourcesData.forEach(resource => {
-                    const resourceDiv = document.createElement('div');
-                    resourceDiv.className = 'item';
-                    resourceDiv.innerHTML = `
-                        <div class.item-name">${resource.uri}</div>
-                        <div class="item-meta"><b>Name:</b> ${resource.name || 'N/A'}</div>
-                        <div class="item-meta"><b>Description:</b> ${resource.description || 'No description provided.'}</div>
-                        <div class="item-meta"><b>MIME Type:</b> ${resource.mime_type || 'N/A'}</div>
-                    `;
-                    resourcesListDiv.appendChild(resourceDiv);
-                });
-            }
-
-            function renderPrompts(promptsData) {
-                promptsListDiv.innerHTML = ''; // Clear current content
-                if (!promptsData || !Array.isArray(promptsData) || promptsData.length === 0) {
-                    promptsListDiv.innerHTML = '<p>No prompts available.</p>';
-                    return;
-                }
-                promptsData.forEach(prompt => {
-                    const promptDiv = document.createElement('div');
-                    promptDiv.className = 'item';
-                    const argsHtml = (prompt.arguments && prompt.arguments.length > 0)
-                        ? prompt.arguments.map(arg => `
-                            <div><b>${arg.name || 'N/A'}</b> (${arg.type || 'N/A'}, ${arg.required ? 'required' : 'optional'}): ${arg.description || 'No description.'}</div>
-                        `).join('')
-                        : 'No arguments defined.';
-                    
-                    promptDiv.innerHTML = `
-                        <div class="item-name">${prompt.name}</div>
-                        <div class="item-meta">${prompt.description || 'No description provided.'}</div>
-                        <div>Arguments:</div>
-                        <div class="item-args">
-                            ${argsHtml}
-                        </div>
-                    `;
-                    promptsListDiv.appendChild(promptDiv);
-                });
-            }
-        });
-    </script>
+    <script src="script.js" defer></script>
 </body>
 </html>

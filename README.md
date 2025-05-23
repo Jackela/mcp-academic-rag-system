@@ -134,7 +134,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (basic read-only capabilities viewer implemented)
+- [/] Web界面开发 (interactive viewer: can execute echo tool and summarize_document_abstract prompt)
 - [ ] 高级RAG功能增强
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
@@ -337,7 +337,12 @@ This section details common MCP commands supported by the server across differen
 
 ## Web Interface
 
-A basic web interface is available to display the server's capabilities (available tools, resources, and prompts).
+A web interface is available to display the server's capabilities and interact with some of its features. It currently allows:
+*   Viewing available tools, resources, and prompts.
+*   Executing the "echo" tool by providing a message.
+*   Executing the "summarize_document_abstract" prompt by providing a document URI.
+
+Results of executions are displayed on the page, updated via Server-Sent Events.
 
 **How to Access:**
 
