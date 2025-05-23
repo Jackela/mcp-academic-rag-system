@@ -239,6 +239,7 @@ class McpServer:
         self.sse_clients = [] 
         self.http_server_thread = None
         self.http_server = None
+        self.next_doc_id_counter = 200 # Initialize counter for new documents
         logger.info(f"创建MCP服务器: {name} v{version}")
 
         # Initialize document store
@@ -286,7 +287,21 @@ class McpServer:
                 },
                 "required": ["query"]
             },
-            callback=self._execute_document_search_impl # Changed to method
+            callback=self._execute_document_search_impl 
+        )
+        self.register_tool(
+            name="add_document_to_store",
+            description="Adds a new document to the in-memory document store. Requires title, abstract, and keywords.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "The title of the document."},
+                    "abstract": {"type": "string", "description": "The abstract or a brief summary of the document."},
+                    "keywords": {"type": "string", "description": "Comma-separated list of keywords."}
+                },
+                "required": ["title", "abstract", "keywords"]
+            },
+            callback=self._execute_add_document_to_store_impl
         )
         self.register_resource(
             uri="mcp://resources/literature/doc123",
@@ -354,6 +369,39 @@ class McpServer:
                 try: client_wfile.close()
                 except Exception: pass
 
+    def _generate_next_doc_id(self) -> str:
+        doc_id = f"doc{self.next_doc_id_counter}"
+        self.next_doc_id_counter += 1
+        return doc_id
+
+    def _execute_add_document_to_store_impl(self, params: dict) -> dict:
+        title = params.get("title")
+        abstract = params.get("abstract")
+        keywords_str = params.get("keywords", "") # Ensure keywords_str is always a string
+
+        if not title or not title.strip() or not abstract or not abstract.strip():
+            return {"error": "Missing required parameters: title and abstract are required."}
+
+        keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
+        
+        new_doc_id = self._generate_next_doc_id()
+        
+        new_document = {
+            "id": new_doc_id,
+            "title": title,
+            "abstract": abstract,
+            "keywords": keywords
+        }
+        
+        self.document_store.append(new_document)
+        logger.info(f"Added new document to store: {new_doc_id} - {title}")
+        
+        return {
+            "message": "Document added successfully.",
+            "document_id": new_doc_id,
+            "title": title
+        }
+
     def _execute_document_search_impl(self, params: dict) -> dict:
         query_str = params.get("query", "").lower()
         try:
@@ -362,8 +410,8 @@ class McpServer:
             logger.warning(f"Invalid max_results value '{params.get('max_results')}', defaulting to 3.")
             max_results = 3
 
-        if not query_str:
-            return {"search_results": [], "query_received": params.get("query")}
+        if not query_str: # Return empty results if query is empty, not an error from callback.
+            return {"search_results": [], "query_received": params.get("query", "")}
 
         found_documents = []
         for doc in self.document_store:
@@ -376,7 +424,7 @@ class McpServer:
                 match = True
             
             if match:
-                found_documents.append(doc.copy()) # Add a copy
+                found_documents.append(doc.copy()) 
 
         results_to_return = found_documents[:max_results]
         return {"search_results": results_to_return, "query_received": params.get("query")}
@@ -666,3 +714,5 @@ if __name__ == "__main__":
     else:
         server.start(transport_type="stdio")
     logger.info("McpServer example finished.")
+
+[end of mcp/server.py]

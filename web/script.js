@@ -44,13 +44,14 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Tool Result event received:', event.data);
         try {
             const parsedData = JSON.parse(event.data);
+            let displayDiv;
             if (parsedData.tool_name === "echo") {
-                const displayDiv = document.getElementById('echo-result-display');
+                displayDiv = document.getElementById('echo-result-display');
                 if (displayDiv) {
                     displayDiv.textContent = `Success:\n${JSON.stringify(parsedData.result, null, 2)}`;
                 }
             } else if (parsedData.tool_name === "document_search") {
-                const displayDiv = document.getElementById('search-result-display');
+                displayDiv = document.getElementById('search-result-display');
                 if (displayDiv) {
                     if (parsedData.result && parsedData.result.search_results && parsedData.result.search_results.length > 0) {
                         let resultsHtml = `<strong>Query:</strong> ${parsedData.result.query_received}<br><br>`;
@@ -67,11 +68,25 @@ document.addEventListener('DOMContentLoaded', function() {
                         displayDiv.innerHTML = resultsHtml;
                     } else if (parsedData.result && parsedData.result.query_received) {
                          displayDiv.textContent = `No documents found for your query: "${parsedData.result.query_received}"`;
-                    } else if (parsedData.result && parsedData.result.error) { // Handle error from callback within result
+                    } else if (parsedData.result && parsedData.result.error) { 
                         displayDiv.textContent = `Error: ${parsedData.result.error}`;
-                    }
-                     else {
+                    } else {
                         displayDiv.textContent = 'No results or malformed result data.';
+                    }
+                }
+            } else if (parsedData.tool_name === "add_document_to_store") {
+                displayDiv = document.getElementById('add-doc-result-display');
+                if (displayDiv) {
+                    if (parsedData.result && parsedData.result.message) {
+                        displayDiv.textContent = `Success: ${parsedData.result.message} (ID: ${parsedData.result.document_id}, Title: ${parsedData.result.title})`;
+                        // Clear input fields on success
+                        document.getElementById('add-doc-title-input').value = '';
+                        document.getElementById('add-doc-abstract-input').value = '';
+                        document.getElementById('add-doc-keywords-input').value = '';
+                    } else if (parsedData.result && parsedData.result.error) {
+                        displayDiv.textContent = `Error: ${parsedData.result.error}`;
+                    } else {
+                        displayDiv.textContent = 'Document addition status unknown or malformed result data.';
                     }
                 }
             }
@@ -89,6 +104,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 displayDivId = 'echo-result-display';
             } else if (parsedData.tool_name === "document_search") {
                 displayDivId = 'search-result-display';
+            } else if (parsedData.tool_name === "add_document_to_store") {
+                displayDivId = 'add-doc-result-display';
             }
 
             if (displayDivId) {
@@ -169,6 +186,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <button onclick="runDocumentSearch()" style="margin-top: 10px;">Run Search</button>
                     <div id="search-result-display" class="result-display"></div>
+                </div>
+                `;
+            } else if (tool.name === "add_document_to_store") {
+                toolHtml += `
+                <div class="tool-interaction">
+                    <div>
+                        <label for="add-doc-title-input">Title:</label>
+                        <input type="text" id="add-doc-title-input" placeholder="Enter document title" style="width: 98%;">
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label for="add-doc-abstract-input">Abstract:</label>
+                        <textarea id="add-doc-abstract-input" placeholder="Enter document abstract" rows="3" style="width: 98%;"></textarea>
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label for="add-doc-keywords-input">Keywords (comma-separated):</label>
+                        <input type="text" id="add-doc-keywords-input" placeholder="e.g., ai, healthcare, data" style="width: 98%;">
+                    </div>
+                    <button onclick="runAddDocumentTool()" style="margin-top: 10px;">Add Document to Store</button>
+                    <div id="add-doc-result-display" class="result-display"></div>
                 </div>
                 `;
             }
@@ -316,8 +352,36 @@ function runDocumentSearch() {
         tool_name: "document_search",
         tool_params: {
             query: query,
-            max_results: isNaN(maxResults) || maxResults <= 0 ? 3 : maxResults // Default to 3 if parsing fails or invalid
+            max_results: isNaN(maxResults) || maxResults <= 0 ? 3 : maxResults 
         }
     };
     sendMcpCommand(command, 'search-result-display');
+}
+
+function runAddDocumentTool() {
+    const titleInput = document.getElementById('add-doc-title-input');
+    const abstractInput = document.getElementById('add-doc-abstract-input');
+    const keywordsInput = document.getElementById('add-doc-keywords-input');
+    const resultDisplay = document.getElementById('add-doc-result-display');
+
+    const title = titleInput ? titleInput.value : '';
+    const abstract = abstractInput ? abstractInput.value : '';
+    const keywords = keywordsInput ? keywordsInput.value : '';
+
+    if (!title.trim() || !abstract.trim()) {
+        if(resultDisplay) resultDisplay.textContent = 'Error: Title and Abstract are required.';
+        return;
+    }
+    // Keywords are optional on client-side, server will handle empty string if needed
+
+    const command = {
+        command: "execute_tool",
+        tool_name: "add_document_to_store",
+        tool_params: {
+            title: title,
+            abstract: abstract,
+            keywords: keywords 
+        }
+    };
+    sendMcpCommand(command, 'add-doc-result-display');
 }

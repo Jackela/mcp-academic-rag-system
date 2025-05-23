@@ -54,6 +54,40 @@ Currently implemented tools (some are placeholders):
         ```
         (Note: The actual results will depend on the query and the content of the in-memory document store.)
 
+-   **`add_document_to_store`**
+    *   **Description:** Adds a new document to the in-memory document store. Requires title, abstract, and a comma-separated string of keywords.
+    *   **MCP Command Parameters (`tool_params`):**
+        *   `title` (string, required): The title of the document.
+        *   `abstract` (string, required): The abstract or a brief summary of the document.
+        *   `keywords` (string, required): Comma-separated list of keywords.
+    *   **Example MCP Command:**
+        ```json
+        {
+            "command": "execute_tool",
+            "tool_name": "add_document_to_store",
+            "tool_params": {
+                "title": "New Insights into Quantum Entanglement",
+                "abstract": "This paper details novel experiments and their implications for quantum theory.",
+                "keywords": "quantum, entanglement, physics, research"
+            }
+        }
+        ```
+    *   **Example Result (in `data` field of `tool_result` SSE event or STDIO output):**
+        Success:
+        ```json
+        {
+            "message": "Document added successfully.",
+            "document_id": "doc200", // Example ID, will increment
+            "title": "New Insights into Quantum Entanglement"
+        }
+        ```
+        Error (e.g., missing parameters):
+        ```json
+        {
+            "error": "Missing required parameters: title and abstract are required."
+        }
+        ```
+
 - **(Planned) 文献搜索工具**：Through keyword, topic, or semantic queries to find relevant documents from a larger, persistent database.
 - **(Planned) 文献处理工具**：上传、OCR处理和结构化文献内容
 - **(Planned) 聊天会话工具**：管理基于文献内容的对话交互
@@ -128,8 +162,8 @@ The server can register and provide definitions for various prompt templates. Pr
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (interactive viewer: can execute echo tool, summarize_document_abstract prompt, and document_search tool)
-- [/] 高级RAG功能增强 (document_search tool now searches an in-memory list of sample documents)
+- [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, and add_document_to_store)
+- [/] 高级RAG功能增强 (document_search tool searches in-memory store; new documents can be added to store via tool)
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 
@@ -335,7 +369,8 @@ A web interface is available to display the server's capabilities and interact w
 *   Viewing available tools, resources, and prompts.
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
-*   **Executing the "document_search" tool by providing a query and maximum number of results.**
+*   Executing the "document_search" tool by providing a query and maximum number of results.
+*   **Adding a new document to the in-memory store by providing its title, abstract, and keywords.**
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 
