@@ -23,7 +23,7 @@ Currently implemented tools (some are placeholders):
     *   **Example Result:** `{"echo_response": "your message"}`
 
 -   **`document_search`**
-    *   **Description:** Searches academic documents based on a query. (Currently returns dummy data)
+    *   **Description:** Searches a predefined in-memory list of sample academic documents. The search is case-insensitive and covers document titles, abstracts, and keywords.
     *   **MCP Command Parameters (`tool_params`):**
         *   `query` (string, required): The search term or question.
         *   `max_results` (integer, optional, default: 3): The maximum number of search results to return.
@@ -33,8 +33,8 @@ Currently implemented tools (some are placeholders):
             "command": "execute_tool",
             "tool_name": "document_search",
             "tool_params": {
-                "query": "artificial intelligence in healthcare",
-                "max_results": 5
+                "query": "healthcare",
+                "max_results": 1
             }
         }
         ```
@@ -43,24 +43,18 @@ Currently implemented tools (some are placeholders):
         {
             "search_results": [
                 {
-                    "id": "doc_1",
-                    "title": "Dummy Document 1 about 'artificial intelligence in healthcare'",
-                    "snippet": "This is a snippet for document 1 which matches the query: 'artificial intelligence in healthcare'.",
-                    "score": 1.0
-                },
-                {
-                    "id": "doc_2",
-                    "title": "Dummy Document 2 about 'artificial intelligence in healthcare'",
-                    "snippet": "This is a snippet for document 2 which matches the query: 'artificial intelligence in healthcare'.",
-                    "score": 0.5
+                    "id": "doc101",
+                    "title": "Exploring Artificial Intelligence in Modern Healthcare",
+                    "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+                    "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
                 }
             ],
-            "query_received": "artificial intelligence in healthcare"
+            "query_received": "healthcare"
         }
         ```
-        (Note: The example above shows 2 results if `max_results` was 2; the actual number of results will match `max_results` up to the available dummy data count.)
+        (Note: The actual results will depend on the query and the content of the in-memory document store.)
 
-- **(Planned) 文献搜索工具**：通过关键词、主题或语义查询查找相关文献
+- **(Planned) 文献搜索工具**：Through keyword, topic, or semantic queries to find relevant documents from a larger, persistent database.
 - **(Planned) 文献处理工具**：上传、OCR处理和结构化文献内容
 - **(Planned) 聊天会话工具**：管理基于文献内容的对话交互
 
@@ -134,8 +128,8 @@ The server can register and provide definitions for various prompt templates. Pr
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (interactive viewer: can execute echo tool and summarize_document_abstract prompt)
-- [ ] 高级RAG功能增强
+- [/] Web界面开发 (interactive viewer: can execute echo tool, summarize_document_abstract prompt, and document_search tool)
+- [/] 高级RAG功能增强 (document_search tool now searches an in-memory list of sample documents)
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 
@@ -341,6 +335,7 @@ A web interface is available to display the server's capabilities and interact w
 *   Viewing available tools, resources, and prompts.
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
+*   **Executing the "document_search" tool by providing a query and maximum number of results.**
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 

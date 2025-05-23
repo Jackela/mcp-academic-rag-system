@@ -120,6 +120,23 @@ class _McpSseHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, f"Server error serving index.html: {str(e)}")
                 logger.error(f"Error serving index.html: {e}", exc_info=True)
+        elif self.path == '/script.js':
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                file_path = os.path.join(script_dir, '..', 'web', 'script.js')
+                if not os.path.exists(file_path):
+                    self.send_error(404, "File Not Found: script.js")
+                    logger.warning(f"script.js not found at expected path: {file_path}")
+                    return
+                self.send_response(200)
+                self.send_header('Content-type', 'application/javascript')
+                self.end_headers()
+                with open(file_path, 'rb') as f:
+                    self.wfile.write(f.read())
+                logger.info(f"Served script.js to {self.client_address}")
+            except Exception as e:
+                self.send_error(500, f"Server error serving script.js: {str(e)}")
+                logger.error(f"Error serving script.js: {e}", exc_info=True)
         else:
             self.send_error(404, 'File Not Found or Invalid Endpoint')
 
@@ -201,7 +218,11 @@ class _McpSseHandler(BaseHTTPRequestHandler):
             self.send_error(404, "Not Found")
 
     def log_message(self, format: str, *args: Any) -> None:
-        if "GET /mcp_sse" in format or "POST /mcp_command" in format or "GET / HTTP" in format or "GET /index.html HTTP" in format :
+        if "GET /mcp_sse" in format or \
+           "POST /mcp_command" in format or \
+           "GET / HTTP" in format or \
+           "GET /index.html HTTP" in format or \
+           "GET /script.js HTTP" in format:
              logger.info(f"HTTP: {self.address_string()} - {format % args}")
         else:
              logger.debug(f"HTTP: {self.address_string()} - {format % args}")
@@ -220,6 +241,34 @@ class McpServer:
         self.http_server = None
         logger.info(f"创建MCP服务器: {name} v{version}")
 
+        # Initialize document store
+        self.document_store = [
+            {
+                "id": "doc101",
+                "title": "Exploring Artificial Intelligence in Modern Healthcare",
+                "abstract": "This paper discusses the impact of AI on diagnostics and treatment, highlighting machine learning advancements.",
+                "keywords": ["ai", "healthcare", "diagnostics", "machine learning", "treatment"]
+            },
+            {
+                "id": "doc102",
+                "title": "The Future of Renewable Energy Sources",
+                "abstract": "A comprehensive review of solar, wind, and geothermal energy technologies and their potential.",
+                "keywords": ["renewable energy", "solar", "wind", "geothermal", "sustainability"]
+            },
+            {
+                "id": "doc103",
+                "title": "Quantum Computing: A New Paradigm",
+                "abstract": "This article introduces the fundamental concepts of quantum computing and its applications.",
+                "keywords": ["quantum computing", "qubits", "algorithms", "cryptography"]
+            },
+            {
+                "id": "doc104",
+                "title": "Advanced Machine Learning Techniques for NLP",
+                "abstract": "Deep learning models and transformers are revolutionizing Natural Language Processing.",
+                "keywords": ["machine learning", "nlp", "deep learning", "transformers", "ai"]
+            }
+        ]
+
         self.register_tool(
             name="echo",
             description="Echo the input",
@@ -237,7 +286,7 @@ class McpServer:
                 },
                 "required": ["query"]
             },
-            callback=_execute_document_search
+            callback=self._execute_document_search_impl # Changed to method
         )
         self.register_resource(
             uri="mcp://resources/literature/doc123",
@@ -304,6 +353,33 @@ class McpServer:
                 self.sse_clients.remove(client_wfile)
                 try: client_wfile.close()
                 except Exception: pass
+
+    def _execute_document_search_impl(self, params: dict) -> dict:
+        query_str = params.get("query", "").lower()
+        try:
+            max_results = int(params.get("max_results", 3))
+        except ValueError:
+            logger.warning(f"Invalid max_results value '{params.get('max_results')}', defaulting to 3.")
+            max_results = 3
+
+        if not query_str:
+            return {"search_results": [], "query_received": params.get("query")}
+
+        found_documents = []
+        for doc in self.document_store:
+            match = False
+            if query_str in doc.get("title", "").lower():
+                match = True
+            elif query_str in doc.get("abstract", "").lower():
+                match = True
+            elif any(query_str in keyword.lower() for keyword in doc.get("keywords", [])):
+                match = True
+            
+            if match:
+                found_documents.append(doc.copy()) # Add a copy
+
+        results_to_return = found_documents[:max_results]
+        return {"search_results": results_to_return, "query_received": params.get("query")}
 
     def execute_tool_command(self, tool_name: str, tool_params: dict) -> None:
         logger.info(f"Executing tool command: {tool_name} with params: {tool_params}")
@@ -387,7 +463,6 @@ class McpServer:
                 self.broadcast_sse_message(event_name="prompt_error", data=error_data)
                 return
             
-            # Placeholder summary logic
             summary = f"Summary of abstract for '{resource.get('name', document_uri)}': {abstract[:100]}..." if abstract else "Abstract was empty."
             result_data = {"summary": summary, "source_uri": document_uri}
             response_data = {"mcp_protocol_version": "1.0", "status": "success", "prompt_name": prompt_name, "result": result_data}
@@ -495,7 +570,7 @@ class McpServer:
                                                     if not abstract:
                                                         response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Abstract not found in resource"}
                                                     else:
-                                                        summary = f"Summary of abstract: {abstract}" # Placeholder
+                                                        summary = f"Summary of abstract: {abstract}" 
                                                         response = {"mcp_protocol_version": "1.0", "status": "success", "prompt_name": prompt_name, "result": {"summary": summary}}
                                         else:
                                             response = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt execution not implemented yet"}
@@ -552,18 +627,30 @@ class McpServer:
         self.sse_clients.clear()
         logger.info("McpServer stopped.")
 
-def _execute_document_search(params: dict) -> dict:
-    query = params.get("query")
-    max_results_str = params.get("max_results", "3")
-    try: max_results = int(max_results_str)
-    except ValueError: max_results = 3; logger.warning(f"Invalid max_results '{max_results_str}', using 3.")
-    if not query or not query.strip(): return {"error": "Missing or empty query parameter"}
-    results = [{"id": f"doc_{i}", "title": f"Dummy Document {i} about '{query}'", 
-                "snippet": f"Snippet for doc {i} on '{query}'.", "score": round(1.0/i, 2)} 
-               for i in range(1, max_results + 1)]
-    return {"search_results": results, "query_received": query}
+# This function is no longer used as a direct callback for document_search tool
+# It's replaced by _execute_document_search_impl method in McpServer.
+# It can be removed if not used elsewhere, or kept for reference.
+# For this task, we will remove it to avoid confusion.
+# def _execute_document_search(params: dict) -> dict:
+#     query = params.get("query")
+#     max_results_str = params.get("max_results", "3")
+#     try: max_results = int(max_results_str)
+#     except ValueError: max_results = 3; logger.warning(f"Invalid max_results '{max_results_str}', using 3.")
+#     if not query or not query.strip(): return {"error": "Missing or empty query parameter"}
+#     results = [{"id": f"doc_{i}", "title": f"Dummy Document {i} about '{query}'", 
+#                 "snippet": f"Snippet for doc {i} on '{query}'.", "score": round(1.0/i, 2)} 
+#                for i in range(1, max_results + 1)]
+#     return {"search_results": results, "query_received": query}
 
 if __name__ == "__main__":
+    # Note: _execute_document_search would need to be defined if McpServer still used it directly
+    # For the refactored version, McpServer has its own _execute_document_search_impl method.
+    def _execute_document_search(params: dict) -> dict: # Re-define for main if needed, or ensure McpServer uses its method
+        # This is a placeholder if the global function is still referenced by an old registration in testing.
+        # The real logic is now in McpServer._execute_document_search_impl
+        logger.warning("_execute_document_search global fallback called, should use McpServer method.")
+        return {"error": "Global _execute_document_search called, not the class method."}
+
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     server = McpServer("example-server", "0.1.0")
     server_mode = "sse" 

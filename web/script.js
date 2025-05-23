@@ -49,8 +49,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (displayDiv) {
                     displayDiv.textContent = `Success:\n${JSON.stringify(parsedData.result, null, 2)}`;
                 }
+            } else if (parsedData.tool_name === "document_search") {
+                const displayDiv = document.getElementById('search-result-display');
+                if (displayDiv) {
+                    if (parsedData.result && parsedData.result.search_results && parsedData.result.search_results.length > 0) {
+                        let resultsHtml = `<strong>Query:</strong> ${parsedData.result.query_received}<br><br>`;
+                        parsedData.result.search_results.forEach(doc => {
+                            resultsHtml += `
+                                <div class="item">
+                                    <div class="item-name">ID: ${doc.id}</div>
+                                    <div><strong>Title:</strong> ${doc.title || 'N/A'}</div>
+                                    <div><strong>Abstract:</strong> ${doc.abstract || 'N/A'}</div>
+                                    <div><strong>Keywords:</strong> ${(doc.keywords || []).join(', ')}</div>
+                                </div>
+                            `;
+                        });
+                        displayDiv.innerHTML = resultsHtml;
+                    } else if (parsedData.result && parsedData.result.query_received) {
+                         displayDiv.textContent = `No documents found for your query: "${parsedData.result.query_received}"`;
+                    } else if (parsedData.result && parsedData.result.error) { // Handle error from callback within result
+                        displayDiv.textContent = `Error: ${parsedData.result.error}`;
+                    }
+                     else {
+                        displayDiv.textContent = 'No results or malformed result data.';
+                    }
+                }
             }
-            // Add more tool_name checks here for other tools in the future
         } catch (e) {
             console.error('Error parsing tool_result JSON:', e);
         }
@@ -60,13 +84,19 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Tool Error event received:', event.data);
         try {
             const parsedData = JSON.parse(event.data);
+            let displayDivId = '';
             if (parsedData.tool_name === "echo") { 
-                const displayDiv = document.getElementById('echo-result-display');
+                displayDivId = 'echo-result-display';
+            } else if (parsedData.tool_name === "document_search") {
+                displayDivId = 'search-result-display';
+            }
+
+            if (displayDivId) {
+                const displayDiv = document.getElementById(displayDivId);
                 if (displayDiv) {
-                    displayDiv.textContent = `Error:\n${JSON.stringify(parsedData.error, null, 2)}`;
+                    displayDiv.textContent = `Error for tool ${parsedData.tool_name}:\n${JSON.stringify(parsedData.error, null, 2)}`;
                 }
             }
-            // Add more tool_name checks here for other tools in the future
         } catch (e) {
             console.error('Error parsing tool_error JSON:', e);
         }
@@ -124,6 +154,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     <input type="text" id="echo-message-input" placeholder="Enter message for echo">
                     <button onclick="runEchoTool()">Run Echo</button>
                     <div id="echo-result-display" class="result-display"></div>
+                </div>
+                `;
+            } else if (tool.name === "document_search") {
+                toolHtml += `
+                <div class="tool-interaction">
+                    <div>
+                        <label for="search-query-input">Query:</label>
+                        <input type="text" id="search-query-input" placeholder="Enter search query">
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label for="search-max-results-input">Max Results:</label>
+                        <input type="number" id="search-max-results-input" value="3" min="1" style="width: 60px;">
+                    </div>
+                    <button onclick="runDocumentSearch()" style="margin-top: 10px;">Run Search</button>
+                    <div id="search-result-display" class="result-display"></div>
                 </div>
                 `;
             }
@@ -208,7 +253,7 @@ function sendMcpCommand(commandPayload, resultDisplayId) {
         if (!response.ok) {
             return response.json().then(errData => {
                 throw new Error(`HTTP error! status: ${response.status}, message: ${errData.error || 'Unknown server error'}`);
-            }).catch(() => { // If response.json() itself fails or no JSON body
+            }).catch(() => { 
                 throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
             });
         }
@@ -224,7 +269,6 @@ function sendMcpCommand(commandPayload, resultDisplayId) {
     });
 }
 
-// Specific function for running the echo tool
 function runEchoTool() {
     const messageInput = document.getElementById('echo-message-input');
     const message = messageInput ? messageInput.value : '';
@@ -236,11 +280,10 @@ function runEchoTool() {
     sendMcpCommand(command, 'echo-result-display');
 }
 
-// Specific function for running the summarize_document_abstract prompt
 function runSummarizePrompt() {
     const uriInput = document.getElementById('summarize-uri-input');
     const document_uri = uriInput ? uriInput.value : '';
-    const resultDisplay = document.getElementById('summarize-result-display'); // For client-side validation msg
+    const resultDisplay = document.getElementById('summarize-result-display'); 
 
     if (!document_uri) { 
         if(resultDisplay) resultDisplay.textContent = 'Error: Document URI is required.'; 
@@ -253,4 +296,28 @@ function runSummarizePrompt() {
         arguments: { document_uri: document_uri }
     };
     sendMcpCommand(command, 'summarize-result-display');
+}
+
+function runDocumentSearch() {
+    const queryInput = document.getElementById('search-query-input');
+    const maxResultsInput = document.getElementById('search-max-results-input');
+    
+    const query = queryInput ? queryInput.value : '';
+    const maxResults = maxResultsInput ? parseInt(maxResultsInput.value, 10) : 3;
+
+    if (!query.trim()) {
+        const resultDisplay = document.getElementById('search-result-display');
+        if(resultDisplay) resultDisplay.textContent = 'Error: Search query cannot be empty.';
+        return;
+    }
+
+    const command = {
+        command: "execute_tool",
+        tool_name: "document_search",
+        tool_params: {
+            query: query,
+            max_results: isNaN(maxResults) || maxResults <= 0 ? 3 : maxResults // Default to 3 if parsing fails or invalid
+        }
+    };
+    sendMcpCommand(command, 'search-result-display');
 }
