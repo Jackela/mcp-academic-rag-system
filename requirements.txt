@@ -21,6 +21,7 @@ openai>=0.27.0
 haystack-ai>=1.20.0
 pdfminer.six>=20220524
 python-docx>=0.8.11
+pdfplumber==0.11.0
 
 # Web服务依赖（用于SSE传输）
 fastapi>=0.95.0

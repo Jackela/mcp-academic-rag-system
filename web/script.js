@@ -418,13 +418,18 @@ function handleAddDocumentFromFile() {
     const keywords = fileKeywordsInput.value.trim();
 
     if (!file) {
-        fileUploadResultDiv.textContent = 'Please select a .txt file.';
+        fileUploadResultDiv.textContent = 'Please select a .txt or .pdf file.'; // Updated message
         return;
     }
 
-    // Basic file type check (optional, but good practice)
-    if (file.type !== 'text/plain' && !file.name.endsWith('.txt')) {
-        fileUploadResultDiv.textContent = 'Error: Invalid file type. Please select a .txt file.';
+    // Updated file type check for .txt and .pdf
+    const allowedTypes = ['text/plain', 'application/pdf'];
+    const allowedExtensions = ['.txt', '.pdf'];
+    let isValidType = allowedTypes.includes(file.type);
+    let isValidExt = allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+
+    if (!isValidType && !isValidExt) { 
+        fileUploadResultDiv.textContent = 'Error: Invalid file type. Please select a .txt or .pdf file.'; // Updated message
         return;
     }
 

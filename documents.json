@@ -48,11 +48,56 @@
     },
     {
         "id": "doc200",
-        "title": "My New STDIO Document. Content on one line.",
-        "abstract": "My New STDIO Document. Content on one line.",
+        "title": "TXT Title From File",
+        "abstract": "TXT Title From File\nThis is the content of the TXT document from file.\n",
         "keywords": [
-            "stdio_test",
-            "dynamic_resource"
+            "txt",
+            "regression"
+        ]
+    },
+    {
+        "id": "doc201",
+        "title": "PDF Title From Simple PDF",
+        "abstract": "PDF Title From Simple PDF\nThis is the first line of content in the simple PDF.\nThis is the second line of content in the simple PDF, with some more text.\n",
+        "keywords": [
+            "pdf",
+            "simple_test_ui"
+        ]
+    },
+    {
+        "id": "doc202",
+        "title": "Empty Page PDF Title",
+        "abstract": "Empty Page PDF Title\n",
+        "keywords": [
+            "pdf",
+            "empty_page_ui"
+        ]
+    },
+    {
+        "id": "doc203",
+        "title": "PDF Title From Simple PDF",
+        "abstract": "PDF Title From Simple PDF\nThis is the first line of content in the simple PDF.\nThis is the second line of content in the simple PDF, with some more text.\n",
+        "keywords": [
+            "pdf",
+            "api_test"
+        ]
+    },
+    {
+        "id": "doc204",
+        "title": "PDF Title From Simple PDF",
+        "abstract": "PDF Title From Simple PDF\nThis is the first line of content in the simple PDF.\nThis is the second line of content in the simple PDF, with some more text.\n",
+        "keywords": [
+            "pdf",
+            "api_test"
+        ]
+    },
+    {
+        "id": "doc205",
+        "title": "Empty Page PDF Title",
+        "abstract": "Empty Page PDF Title\n",
+        "keywords": [
+            "pdf",
+            "api_empty_page"
         ]
     }
 ]

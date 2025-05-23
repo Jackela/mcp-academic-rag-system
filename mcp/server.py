@@ -18,6 +18,8 @@ import urllib.parse # For parsing URL in handler
 import os # Added for path operations
 import base64 # For decoding file content
 import binascii # For Base64 error handling
+import io # For BytesIO
+import pdfplumber # For PDF processing
 
 # 日志配置
 logger = logging.getLogger(__name__)
@@ -329,7 +331,7 @@ class McpServer:
         )
         self.register_tool(
             name="add_document_from_file",
-            description="Adds a new document to the store from an uploaded text file (.txt). The file content is provided as a Base64 encoded string.",
+            description="Adds a new document to the store from an uploaded text file (.txt) or PDF file (.pdf). For PDFs, text content is extracted. The file content is provided as a Base64 encoded string.",
             schema={
                 "type": "object",
                 "properties": {
@@ -517,15 +519,39 @@ class McpServer:
         if file_content_base64 is None or not filename.strip():
             return {"error": "Missing required parameter: file_content_base64 must be provided (can be an empty string), and filename must be a non-empty string."}
 
-        try:
-            decoded_bytes = base64.b64decode(file_content_base64)
-            decoded_text = decoded_bytes.decode('utf-8')
-        except (binascii.Error, UnicodeDecodeError) as e: # Corrected exception handling
-            logger.warning(f"Failed to decode Base64 content for file {filename}: {e}")
-            return {"error": "Invalid Base64 content or UTF-8 decoding error."}
-        except Exception as e: # Catch any other unexpected error during decoding
-            logger.error(f"Unexpected error decoding file {filename}: {e}", exc_info=True)
-            return {"error": "An unexpected error occurred during file decoding."}
+        decoded_text = "" # Initialize to empty string
+
+        if filename.lower().endswith('.pdf'):
+            try:
+                decoded_bytes = base64.b64decode(file_content_base64)
+            except binascii.Error as e:
+                logger.warning(f"Invalid Base64 content for PDF file {filename}: {e}")
+                return {"error": "Invalid Base64 content."}
+            
+            extracted_text = ""
+            try:
+                with io.BytesIO(decoded_bytes) as pdf_buffer:
+                    with pdfplumber.open(pdf_buffer) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                extracted_text += page_text + "\n" # Add newline between pages
+                decoded_text = extracted_text
+                if not extracted_text:
+                    logger.warning(f"No text could be extracted from PDF {filename}")
+            except Exception as e:
+                logger.error(f"Error processing PDF {filename}: {e}", exc_info=True)
+                return {"error": f"Error processing PDF file: {str(e)}"}
+        else: # Assume .txt or other text format
+            try:
+                decoded_bytes = base64.b64decode(file_content_base64)
+                decoded_text = decoded_bytes.decode('utf-8')
+            except (binascii.Error, UnicodeDecodeError) as e:
+                logger.warning(f"Failed to decode Base64/UTF-8 content for file {filename}: {e}")
+                return {"error": "Invalid Base64 content or UTF-8 decoding error."}
+            except Exception as e:
+                logger.error(f"Unexpected error decoding file {filename}: {e}", exc_info=True)
+                return {"error": "An unexpected error occurred during file decoding."}
 
         stripped_decoded_text = decoded_text.strip()
         
