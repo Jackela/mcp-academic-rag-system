@@ -86,8 +86,49 @@ Currently implemented tools (some are placeholders):
         }
         ```
 
+-   **`add_document_from_file`**
+    *   **Description:** Adds a new document to the store from an uploaded text file (.txt). The file content is provided as a Base64 encoded string. The server decodes the text, derives a title (from the first line or filename), and stores the document.
+    *   **MCP Command Parameters (`tool_params`):**
+        *   `file_content_base64` (string, required): Base64 encoded content of the .txt file.
+        *   `filename` (string, required): The original name of the file (e.g., "mypaper.txt").
+        *   `keywords` (string, optional): Comma-separated list of keywords.
+    *   **Example MCP Command:**
+        ```json
+        {
+            "command": "execute_tool",
+            "tool_name": "add_document_from_file",
+            "tool_params": {
+                "filename": "example_document.txt",
+                "file_content_base64": "Rmlyc3QgbGluZSBhcyBkZXJpdmVkIHRpdGxlLgpUaGlzIGlzIHRoZSByZXN0IG9mIHRoZSBkb2N1bWVudCBjb250ZW50LCB3aGljaCB3aWxsIGJlIHN0b3JlZCBhcyB0aGUgYWJzdHJhY3Qu",
+                "keywords": "file upload, base64, example"
+            }
+        }
+        ```
+        (Note: The Base64 string is "First line as derived title.\nThis is the rest of the document content, which will be stored as the abstract.")
+    *   **Example Result (in `data` field of `tool_result` SSE event or STDIO output):**
+        Success:
+        ```json
+        {
+            "message": "Document added successfully from file.",
+            "document_id": "doc202", // Example ID
+            "derived_title": "First line as derived title.",
+            "original_filename": "example_document.txt"
+        }
+        ```
+        Error (e.g., missing parameters or invalid base64):
+        ```json
+        {
+            "error": "Missing required parameter: file_content_base64 or filename cannot be empty."
+        }
+        ```
+        ```json
+        {
+            "error": "Invalid Base64 content."
+        }
+        ```
+
 - **(Planned) 文献搜索工具**：Through keyword, topic, or semantic queries to find relevant documents from a larger, persistent database.
-- **(Planned) 文献处理工具**：上传、OCR处理和结构化文献内容
+- **(Planned) 文献处理工具**：Advanced OCR processing, and structuring of various document formats (PDF, DOCX). Current basic .txt upload is a step towards this.
 - **(Planned) 聊天会话工具**：管理基于文献内容的对话交互
 
 ### 资源 (Resources)
@@ -143,7 +184,8 @@ The server can register and provide definitions for various prompt templates. Pr
 
 本系统是一个基于API的学术文献OCR电子化、自动分类与智能检索平台，采用流水线架构处理学术文献，将扫描文档转换为结构化电子格式，并提供基于向量数据库的智能检索与自然语言对话功能。
 
-- **文档OCR处理**：将扫描的学术文献转换为可搜索文本
+- **文档OCR处理**：将扫描的学术文献转换为可搜索文本 (Planned, current support is for .txt uploads)
+- **文档内容导入**: 支持从纯文本文件 (.txt) 上传文档内容，并自动提取标题。
 - **文档结构识别**：自动识别标题、摘要、章节等结构元素
 - **内容自动分类**：基于内容对文献进行主题分类和标签标注
 - **格式转换**：生成Markdown和PDF输出，保留原文排版
@@ -158,11 +200,12 @@ The server can register and provide definitions for various prompt templates. Pr
 - [x] 命令行工具开发
 - [x] 基本RAG功能实现
 - [x] **MCP服务器接口实现** (STDIO transport, basic tool execution, basic SSE transport)
-- [/] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store now use persistent storage)
+- [/] MCP工具 (Tools) 功能开发 (echo, document_search, add_document_to_store, add_document_from_file core logic implemented; persistent storage for docs)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [x] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' definition and execution implemented)
-- [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, and add_document_to_store)
-- [x] 高级RAG功能增强 (document_search and add_document_to_store now use a persistent JSON-based document store 'documents.json')
+- [/] Web界面开发 (interactive viewer: can execute echo, summarize_abstract, document_search, add_document_to_store; file upload tool not yet integrated)
+- [x] 高级RAG功能增强 (document_search, add_document_to_store, add_document_from_file use a persistent JSON-based document store 'documents.json')
+- [ ] 文献处理工具 (Advanced OCR, structuring for PDF/DOCX. Basic .txt upload via `add_document_from_file` implemented as a first step)
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
 
@@ -369,7 +412,8 @@ A web interface is available to display the server's capabilities and interact w
 *   Executing the "echo" tool by providing a message.
 *   Executing the "summarize_document_abstract" prompt by providing a document URI.
 *   Executing the "document_search" tool by providing a query and maximum number of results.
-    *   **Adding a new document to the persistent store (`documents.json`) by providing its text content and optional keywords.**
+    *   Adding a new document via direct text input using the `add_document_to_store` tool.
+    *   (Planned: UI integration for `add_document_from_file` tool)
 
 Results of executions are displayed on the page, updated via Server-Sent Events.
 

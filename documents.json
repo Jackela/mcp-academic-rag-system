@@ -45,5 +45,25 @@
             "transformers",
             "ai"
         ]
+    },
+    {
+        "id": "doc200",
+        "title": "newlines_isprintable",
+        "abstract": "\n\n",
+        "keywords": [
+            "newlines",
+            "isprintable",
+            "regression"
+        ]
+    },
+    {
+        "id": "doc200",
+        "title": "Regression Test Title with !@#$%^&*()_+<>?:{}",
+        "abstract": "Regression Test Title with !@#$%^&*()_+<>?:{}\nSome abstract content with\ttab and\nnewline.\n",
+        "keywords": [
+            "regression",
+            "valid",
+            "symbols"
+        ]
     }
 ]
