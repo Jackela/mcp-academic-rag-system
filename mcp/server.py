@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 import functools # For functools.partial
 import urllib.parse # For parsing URL in handler
+import os # Added for path operations
 
 # 日志配置
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class _McpSseHandler(BaseHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
-        """Handles GET requests, primarily for establishing SSE connections."""
+        """Handles GET requests, for SSE connections and serving index.html."""
         if self.path == SSE_PATH:
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
@@ -84,10 +85,8 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                         break # Unknown error, terminate connection handler for safety
 
                     # Wait for the next keep-alive or until server stops
-                    # Use a loop with shorter waits to be responsive to self.mcp_server.running
-                    for _ in range(int(keep_alive_interval / 0.5)): # Check every 0.5s
-                        if not self.mcp_server.running:
-                            break
+                    for _ in range(int(keep_alive_interval / 0.5)): 
+                        if not self.mcp_server.running: break
                         threading.Event().wait(0.5)
                     if not self.mcp_server.running:
                          logger.info(f"SSE client {self.client_address}: Server stopping, closing connection handler.")
@@ -101,8 +100,29 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 if self.wfile in self.mcp_server.sse_clients:
                     self.mcp_server.sse_clients.remove(self.wfile)
                 logger.info(f"SSE client connection closed: {self.client_address}")
+        
+        elif self.path == '/' or self.path == '/index.html':
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__)) # Directory of server.py
+                # Assumes server.py is in project_root/mcp/ and web/ is in project_root/
+                file_path = os.path.join(script_dir, '..', 'web', 'index.html') 
+                
+                if not os.path.exists(file_path):
+                    self.send_error(404, "File Not Found: index.html")
+                    logger.warning(f"index.html not found at expected path: {file_path}")
+                    return
+
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                with open(file_path, 'rb') as f:
+                    self.wfile.write(f.read())
+                logger.info(f"Served index.html to {self.client_address}")
+            except Exception as e:
+                self.send_error(500, f"Server error serving index.html: {str(e)}")
+                logger.error(f"Error serving index.html: {e}", exc_info=True)
         else:
-            self.send_error(404, "Not Found")
+            self.send_error(404, 'File Not Found or Invalid Endpoint')
 
     def do_POST(self):
         """Handles POST requests, intended for receiving MCP commands."""
@@ -110,9 +130,7 @@ class _McpSseHandler(BaseHTTPRequestHandler):
             content_length_str = self.headers.get('Content-Length')
             if not content_length_str:
                 logger.warning(f"POST request from {self.client_address} to {self.path} missing Content-Length.")
-                self.send_response(411) # Length Required
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                self.send_response(411); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"error": "Content-Length required"}).encode('utf-8'))
                 return
 
@@ -124,92 +142,62 @@ class _McpSseHandler(BaseHTTPRequestHandler):
                 logger.info(f"Received POST on {COMMAND_PATH} from {self.client_address} with JSON data: {request_data}")
             except json.JSONDecodeError:
                 logger.warning(f"Invalid JSON received in POST from {self.client_address} to {self.path}: {post_data_bytes.decode('utf-8')[:200]}")
-                self.send_response(400) # Bad Request
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"error": "Invalid JSON"}).encode('utf-8'))
                 return
 
             command = request_data.get("command")
+            response_sent = False
             
             if command == "execute_tool":
                 tool_name = request_data.get("tool_name")
-                tool_params = request_data.get("tool_params", {})
                 if not tool_name:
-                    logger.warning(f"execute_tool command from {self.client_address} missing 'tool_name'.")
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
+                    self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                     self.wfile.write(json.dumps({"error": "Missing 'tool_name' for execute_tool command"}).encode('utf-8'))
                     return
-
-                threading.Thread(target=self.mcp_server.execute_tool_command, 
-                                 args=(tool_name, tool_params), daemon=True).start()
-                
-                self.send_response(202) # Accepted
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                tool_params = request_data.get("tool_params", {})
+                threading.Thread(target=self.mcp_server.execute_tool_command, args=(tool_name, tool_params), daemon=True).start()
+                self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"status": "accepted", "message": f"Tool '{tool_name}' execution initiated."}).encode('utf-8'))
+                response_sent = True
 
             elif command == "get_resource":
                 resource_uri = request_data.get("uri")
                 if not resource_uri:
-                    logger.warning(f"get_resource command from {self.client_address} missing 'uri'.")
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
+                    self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                     self.wfile.write(json.dumps({"error": "Missing 'uri' for get_resource command"}).encode('utf-8'))
                     return
-
-                threading.Thread(target=self.mcp_server.get_resource_command, 
-                                 args=(resource_uri,), daemon=True).start()
-
-                self.send_response(202) # Accepted
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                threading.Thread(target=self.mcp_server.get_resource_command, args=(resource_uri,), daemon=True).start()
+                self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"status": "accepted", "message": "Get resource request initiated."}).encode('utf-8'))
+                response_sent = True
             
             elif command == "get_prompt_definition":
                 prompt_name = request_data.get("name")
                 if not prompt_name:
-                    logger.warning(f"get_prompt_definition command from {self.client_address} missing 'name'.")
-                    self.send_response(400) # Bad Request
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
+                    self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                     self.wfile.write(json.dumps({"error": "Missing name for get_prompt_definition command"}).encode('utf-8'))
                     return
-
-                threading.Thread(target=self.mcp_server.get_prompt_definition_command, 
-                                 args=(prompt_name,), daemon=True).start()
-                
-                self.send_response(202) # Accepted
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                threading.Thread(target=self.mcp_server.get_prompt_definition_command, args=(prompt_name,), daemon=True).start()
+                self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"status": "accepted", "message": "Get prompt definition request initiated."}).encode('utf-8'))
-            else:
+                response_sent = True
+
+            if not response_sent: # Handles unknown commands
                 logger.warning(f"Unknown command '{command}' received in POST from {self.client_address}.")
-                self.send_response(400) # Bad Request
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
+                self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers()
                 self.wfile.write(json.dumps({"error": "Unknown command"}).encode('utf-8'))
         else:
             self.send_error(404, "Not Found")
 
     def log_message(self, format: str, *args: Any) -> None:
-        """Override to use application's logger."""
-        if "GET /mcp_sse" in format or "POST /mcp_command" in format :
+        if "GET /mcp_sse" in format or "POST /mcp_command" in format or "GET / HTTP" in format or "GET /index.html HTTP" in format :
              logger.info(f"HTTP: {self.address_string()} - {format % args}")
         else:
              logger.debug(f"HTTP: {self.address_string()} - {format % args}")
 
 
 class McpServer:
-    """
-    MCP服务器类 - 实现MCP规范的服务器
-    
-    注意：此类是计划中的功能，尚未完全实现
-    """
-    
     def __init__(self, name: str, version: str):
         self.name = name
         self.version = version
@@ -289,23 +277,18 @@ class McpServer:
         if not self.sse_clients:
             logger.debug(f"No SSE clients connected, not broadcasting event: {event_name}")
             return
-
-        logger.debug(f"Broadcasting SSE event: {event_name}, data: {data} to {len(self.sse_clients)} clients.")
         message_str = f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
         message_bytes = message_str.encode('utf-8')
-        
         clients_to_remove = []
         for client_wfile in list(self.sse_clients): 
             try:
-                client_wfile.write(message_bytes)
-                client_wfile.flush()
+                client_wfile.write(message_bytes); client_wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as e:
                 logger.info(f"SSE client disconnected ({type(e).__name__}). Removing client.")
                 clients_to_remove.append(client_wfile)
             except Exception as e:
                 logger.exception(f"Error writing to SSE client: {e}. Removing client.")
                 clients_to_remove.append(client_wfile)
-        
         for client_wfile in clients_to_remove:
             if client_wfile in self.sse_clients:
                 self.sse_clients.remove(client_wfile)
@@ -314,6 +297,7 @@ class McpServer:
 
     def execute_tool_command(self, tool_name: str, tool_params: dict) -> None:
         logger.info(f"Executing tool command: {tool_name} with params: {tool_params}")
+        # ... (rest of method remains the same)
         if tool_name in self.tools:
             tool_definition = self.tools[tool_name]
             callback = tool_definition.get('callback')
@@ -333,8 +317,10 @@ class McpServer:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "tool_name": tool_name, "error": f"Tool '{tool_name}' not found"}
             self.broadcast_sse_message(event_name="tool_error", data=error_data)
 
+
     def get_resource_command(self, resource_uri: str) -> None:
         logger.info(f"Handling get_resource command for URI: {resource_uri}")
+        # ... (rest of method remains the same)
         if not resource_uri:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing URI for get_resource"}
             self.broadcast_sse_message(event_name="resource_error", data=error_data)
@@ -350,6 +336,7 @@ class McpServer:
 
     def get_prompt_definition_command(self, prompt_name: str) -> None:
         logger.info(f"Handling get_prompt_definition command for: {prompt_name}")
+        # ... (rest of method remains the same)
         if not prompt_name:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "error": "Missing name for get_prompt_definition"}
             self.broadcast_sse_message(event_name="prompt_definition_error", data=error_data)
@@ -362,6 +349,7 @@ class McpServer:
         else:
             error_data = {"mcp_protocol_version": "1.0", "status": "error", "name": prompt_name, "error": "Prompt not found"}
             self.broadcast_sse_message(event_name="prompt_definition_error", data=error_data)
+
 
     def start(self, transport_type: str, **kwargs) -> None:
         logger.info(f"启动MCP服务器 (传输类型: {transport_type})")
@@ -395,6 +383,7 @@ class McpServer:
                             command = request_data.get("command")
 
                             if command == "execute_tool":
+                                # ... (STDIO execute_tool logic remains the same) ...
                                 logger.info("Received execute_tool request.")
                                 tool_name = request_data.get("tool_name")
                                 tool_params = request_data.get("tool_params", {})
@@ -413,6 +402,7 @@ class McpServer:
                                     response = {"mcp_protocol_version": "1.0", "status": "error", "error": f"Tool '{tool_name}' not found"}
                             
                             elif command == "get_resource":
+                                # ... (STDIO get_resource logic remains the same) ...
                                 logger.info("Received get_resource request.")
                                 resource_uri = request_data.get("uri")
                                 if not resource_uri:
@@ -425,6 +415,7 @@ class McpServer:
                                         response = {"mcp_protocol_version": "1.0", "status": "error", "uri": resource_uri, "error": "Resource not found"}
                             
                             elif command == "get_prompt_definition":
+                                # ... (STDIO get_prompt_definition logic remains the same) ...
                                 logger.info("Received get_prompt_definition request.")
                                 prompt_name = request_data.get("name")
                                 if not prompt_name:
@@ -488,7 +479,6 @@ class McpServer:
         self.sse_clients.clear()
         logger.info("McpServer stopped.")
 
-# Global level (or static method if preferred and class structure allows easily)
 def _execute_document_search(params: dict) -> dict:
     query = params.get("query")
     max_results_str = params.get("max_results", "3")

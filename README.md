@@ -113,7 +113,7 @@ The server can register and provide definitions for various prompt templates. Pr
 - [/] MCP工具 (Tools) 功能开发 (echo, document_search placeholders implemented)
 - [/] MCP资源 (Resources) 功能开发 (sample 'literature/doc123' registered, `get_resource` command implemented)
 - [/] MCP提示 (Prompts) 功能开发 (sample 'summarize_document_abstract' registered, `get_prompt_definition` command implemented)
-- [ ] Web界面开发
+- [/] Web界面开发 (basic read-only capabilities viewer implemented)
 - [ ] 高级RAG功能增强
 - [ ] 安全性和性能优化
 - [ ] 文档与教程完善
@@ -276,3 +276,23 @@ This section details common MCP commands supported by the server across differen
 *   **Error Responses (STDIO or `prompt_definition_error` SSE event data):**
     *   If prompt not found: `{"mcp_protocol_version": "1.0", "status": "error", "name": "<requested_name>", "error": "Prompt not found"}`
     *   If name missing: `{"mcp_protocol_version": "1.0", "status": "error", "error": "Missing name for get_prompt_definition"}`
+
+## Web Interface
+
+A basic web interface is available to display the server's capabilities (available tools, resources, and prompts).
+
+**How to Access:**
+
+1.  Start the MCP server in SSE mode (as this also enables the web server functionality on the same port):
+    ```bash
+    python3 app.py --transport sse --port 8000
+    ```
+    (Replace `8000` with your desired port if different).
+
+2.  Open your web browser and navigate to:
+    ```
+    http://localhost:8000/
+    ```
+    (Or `http://127.0.0.1:8000/`)
+
+The page will connect to the server's SSE endpoint and display the information it receives.

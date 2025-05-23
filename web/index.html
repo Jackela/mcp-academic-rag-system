@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Server Interface</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+        h2 { color: #007bff; margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 5px;}
+        .container { margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .item { border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; background-color: #f9f9f9; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .item-name { font-weight: bold; color: #0056b3; font-size: 1.1em; margin-bottom: 5px; }
+        .item-meta { font-size: 0.9em; color: #555; margin-bottom: 3px; }
+        .item-args { margin-left: 20px; font-size: 0.9em; color: #444; border-left: 3px solid #007bff; padding-left: 10px; margin-top:5px;}
+        .item-args div { margin-bottom: 5px; }
+        pre { background-color: #e9ecef; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; border: 1px solid #ced4da;}
+        #status-message { padding: 10px; border-radius: 5px; font-weight: bold; }
+        .status-connecting { background-color: #e7f3fe; color: #004085; border: 1px solid #b8daff; }
+        .status-connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>MCP Server Interface</h1>
+
+    <div id="status-message" class="container status-connecting">Connecting to MCP Server...</div>
+
+    <div class="container">
+        <h2>Available Tools</h2>
+        <div id="tools-list">
+            <p>No tools loaded yet.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Available Resources</h2>
+        <div id="resources-list">
+            <p>No resources loaded yet.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Available Prompts</h2>
+        <div id="prompts-list">
+            <p>No prompts loaded yet.</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const eventSource = new EventSource('/mcp_sse');
+            const statusMessageDiv = document.getElementById('status-message');
+            const toolsListDiv = document.getElementById('tools-list');
+            const resourcesListDiv = document.getElementById('resources-list');
+            const promptsListDiv = document.getElementById('prompts-list');
+
+            console.log("Attempting to connect to MCP Server via SSE...");
+
+            eventSource.onopen = function() {
+                statusMessageDiv.textContent = 'Connected to MCP Server. Waiting for capabilities...';
+                statusMessageDiv.className = 'container status-connected'; // Update class for styling
+                console.log("SSE connection opened.");
+            };
+
+            eventSource.onerror = function(error) {
+                statusMessageDiv.textContent = 'Error connecting to MCP Server. Make sure it is running and accessible. Retrying...';
+                statusMessageDiv.className = 'container status-error'; // Update class for styling
+                console.error('EventSource failed:', error);
+                // EventSource will automatically retry, no need to explicitly call eventSource.close() unless specific retry logic is needed.
+            };
+
+            eventSource.addEventListener('capabilities', function(event) {
+                console.log('Capabilities event received:', event.data);
+                try {
+                    const capabilities = JSON.parse(event.data);
+                    statusMessageDiv.textContent = `Capabilities received. Server: ${capabilities.server_name || 'N/A'} v${capabilities.server_version || 'N/A'}`;
+                    statusMessageDiv.className = 'container status-connected';
+
+                    renderTools(capabilities.tools);
+                    renderResources(capabilities.resources);
+                    renderPrompts(capabilities.prompts);
+
+                    // Decide whether to close the connection. For now, keeping it open as per instructions.
+                    // eventSource.close(); 
+                    // console.log("SSE connection closed after receiving capabilities.");
+
+                } catch (e) {
+                    console.error('Error parsing capabilities JSON:', e);
+                    statusMessageDiv.textContent = 'Error processing capabilities from server.';
+                    statusMessageDiv.className = 'container status-error';
+                }
+            });
+            
+            // Add listener for keepalive if server sends them, to prevent timeouts or log activity
+            eventSource.addEventListener('keepalive', function(event) {
+                console.log('Keepalive event received');
+            });
+
+
+            function renderTools(toolsData) {
+                toolsListDiv.innerHTML = ''; // Clear current content
+                if (!toolsData || !Array.isArray(toolsData) || toolsData.length === 0) {
+                    toolsListDiv.innerHTML = '<p>No tools available.</p>';
+                    return;
+                }
+                toolsData.forEach(tool => {
+                    const toolDiv = document.createElement('div');
+                    toolDiv.className = 'item';
+                    toolDiv.innerHTML = `
+                        <div class="item-name">${tool.name}</div>
+                        <div class="item-meta">${tool.description || 'No description provided.'}</div>
+                        <pre>Schema: ${JSON.stringify(tool.schema || {}, null, 2)}</pre>
+                    `;
+                    toolsListDiv.appendChild(toolDiv);
+                });
+            }
+
+            function renderResources(resourcesData) {
+                resourcesListDiv.innerHTML = ''; // Clear current content
+                if (!resourcesData || !Array.isArray(resourcesData) || resourcesData.length === 0) {
+                    resourcesListDiv.innerHTML = '<p>No resources available.</p>';
+                    return;
+                }
+                resourcesData.forEach(resource => {
+                    const resourceDiv = document.createElement('div');
+                    resourceDiv.className = 'item';
+                    resourceDiv.innerHTML = `
+                        <div class.item-name">${resource.uri}</div>
+                        <div class="item-meta"><b>Name:</b> ${resource.name || 'N/A'}</div>
+                        <div class="item-meta"><b>Description:</b> ${resource.description || 'No description provided.'}</div>
+                        <div class="item-meta"><b>MIME Type:</b> ${resource.mime_type || 'N/A'}</div>
+                    `;
+                    resourcesListDiv.appendChild(resourceDiv);
+                });
+            }
+
+            function renderPrompts(promptsData) {
+                promptsListDiv.innerHTML = ''; // Clear current content
+                if (!promptsData || !Array.isArray(promptsData) || promptsData.length === 0) {
+                    promptsListDiv.innerHTML = '<p>No prompts available.</p>';
+                    return;
+                }
+                promptsData.forEach(prompt => {
+                    const promptDiv = document.createElement('div');
+                    promptDiv.className = 'item';
+                    const argsHtml = (prompt.arguments && prompt.arguments.length > 0)
+                        ? prompt.arguments.map(arg => `
+                            <div><b>${arg.name || 'N/A'}</b> (${arg.type || 'N/A'}, ${arg.required ? 'required' : 'optional'}): ${arg.description || 'No description.'}</div>
+                        `).join('')
+                        : 'No arguments defined.';
+                    
+                    promptDiv.innerHTML = `
+                        <div class="item-name">${prompt.name}</div>
+                        <div class="item-meta">${prompt.description || 'No description provided.'}</div>
+                        <div>Arguments:</div>
+                        <div class="item-args">
+                            ${argsHtml}
+                        </div>
+                    `;
+                    promptsListDiv.appendChild(promptDiv);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
